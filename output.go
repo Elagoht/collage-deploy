@@ -20,18 +20,10 @@ import (
 // it. The plugin owns these files for its target and never merges into one it
 // did not write. It reports whether all of them are free.
 func claim(ev *collage.BuildFinishedEvent, names ...string) bool {
-	built := map[string]string{}
-	for _, f := range ev.Files {
-		source := f.Kind
-		if f.Name != "" {
-			source += " " + fmt.Sprintf("%q", f.Name)
-		}
-		built[strings.TrimPrefix(f.Path, "/")] = source
-	}
 	free := true
 	for _, name := range names {
 		_, err := os.Lstat(filepath.Join(ev.OutDir, filepath.FromSlash(name)))
-		source, isBuilt := built[name]
+		source, isBuilt := builtSource(ev, name)
 		if err == nil || isBuilt || !errors.Is(err, fs.ErrNotExist) {
 			why := "it is already in the output"
 			if isBuilt {
@@ -63,6 +55,28 @@ func (o *output) create(name string, data []byte) error {
 	}
 	o.wrote[name] = digest(data)
 	return nil
+}
+
+// builtSource names the build's file at name, a slash path under the output —
+// its kind, and its name when it has one — and reports whether the build wrote
+// one there.
+func builtSource(ev *collage.BuildFinishedEvent, name string) (string, bool) {
+	for _, f := range ev.Files {
+		at := strings.TrimPrefix(f.Path, "/") == name
+		if !at && f.File != "" {
+			rel, err := filepath.Rel(ev.OutDir, f.File)
+			at = err == nil && filepath.ToSlash(rel) == name
+		}
+		if !at {
+			continue
+		}
+		source := f.Kind
+		if f.Name != "" {
+			source += " " + fmt.Sprintf("%q", f.Name)
+		}
+		return source, true
+	}
+	return "", false
 }
 
 // create writes data to name under dir, refusing a file (or link) already

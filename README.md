@@ -54,7 +54,9 @@ edited since — is an error naming it, and nothing is written: the plugin never
 overwrites or merges into a file it did not write. The same goes for a file at a
 GitHub Pages redirect page's path. An existing `.nojekyll` the plugin did not
 write is left as it is. A manifest the plugin cannot read is an error
-(`deploy-manifest`), and nothing is written or removed.
+(`deploy-manifest`), and a file at its name that the build wrote, or that is not a
+manifest the plugin writes, is refused as any other file is
+(`deploy-existing-file`); either way nothing is written or removed.
 
 ## Host formats
 
@@ -144,23 +146,26 @@ carries no headers of its own, but a host cannot tell it from the rest, so the
 plugins write into the output in their own build hook — share-card images, a
 search index, compressed siblings — so `Content-Type`, `Content-Disposition` and
 `Content-Language` never go into `/*` or a `/dir/*` rule: they stay at each file's
-own path, and a host types every other file by its extension as usual.
-
-A captured `Content-Type` that is what the file's extension implies — Go's
-`mime.TypeByExtension`, which is what collage serves files with
-(`text/html; charset=utf-8` for a page's `index.html`, `text/css; charset=utf-8`
-for a stylesheet), compared without regard to case or spaces around `;` — is left
-out of the rules altogether: the host supplies it from the extension, and a rule
-per file for it would only use up a host's rule budget. A `Content-Type` that
-differs (`/feed.xml` answered `application/rss+xml`), or one on a file with no
-extension, keeps its own rule. `Expand` models the rules alone, so it gives such a
-file every header it was answered with but the implied `Content-Type`. A `/dir/*`
+own path, and a host types every other file by its extension as usual. A `/dir/*`
 rule is written only when every file under the directory is a captured 2xx file
 sharing the headers, so it never reaches such a file. A file that was asked for
 and answered otherwise than 2xx (a redirect, an error), or whose capture failed or
 was never reached (`BuiltFile.Captured` with no status), blocks `/*` and its
 directory's wildcard: its headers are not the pages', and the rules fall back to
 directories and single paths.
+
+A captured `Content-Type` that is what the file's extension implies is left out
+of the rules altogether: the host supplies it from the extension, and a rule per
+file for it would only use up a host's rule budget. What an extension implies is
+Go's builtin mime table, which the plugin keeps a copy of — `text/html;
+charset=utf-8` for a page's `index.html`, `text/css; charset=utf-8` for a
+stylesheet, `text/xml; charset=utf-8` for `.xml` — compared without regard to
+case or spaces around `;`. The build machine's own mime tables, which differ from
+one system to the next, are never consulted, so the rules are the same wherever
+the site is built. A `Content-Type` that differs (`/feed.xml` answered
+`application/rss+xml`, or `application/xml`), or one on a file with no extension,
+keeps its own rule. `Expand` models the rules alone, so it gives such a file every
+header it was answered with but the implied `Content-Type`.
 
 ## Configuration
 
@@ -169,7 +174,9 @@ directories and single paths.
 ```
 
 - `target`: `netlify`, `cloudflare`, `vercel` or `github-pages`. Left empty, the
-  plugin warns that nothing is written and the build goes on. Any other value
+  plugin warns that nothing is written and the build goes on; the files the last
+  export wrote for a target, unchanged since, are removed with the manifest, so
+  they are not deployed with it, and the warning says so. Any other value
   stops the application from starting.
 
 A control character in a redirect or a header value is an error that fails the

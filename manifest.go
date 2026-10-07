@@ -5,9 +5,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 
@@ -35,6 +37,10 @@ type manifestEntry struct {
 	SHA256 string `json:"sha256"`
 }
 
+// errNotManifest is a file at ManifestFile's name that is not a manifest the
+// plugin writes: a field it never writes, or a target it does not know.
+var errNotManifest = errors.New("it is not a manifest the plugin wrote")
+
 // readManifest reads the manifest under dir: none, when there is none.
 func readManifest(dir string) (manifest, error) {
 	path := filepath.Join(dir, ManifestFile)
@@ -53,10 +59,40 @@ func readManifest(dir string) (manifest, error) {
 		return manifest{}, err
 	}
 	var m manifest
-	if err := json.Unmarshal(data, &m); err != nil {
-		return manifest{}, err
+	dec := json.NewDecoder(bytes.NewReader(data))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&m); err != nil {
+		var syntax *json.SyntaxError
+		if errors.As(err, &syntax) || errors.Is(err, io.ErrUnexpectedEOF) {
+			return manifest{}, err
+		}
+		return manifest{}, fmt.Errorf("%w: %v", errNotManifest, err)
+	}
+	if !slices.Contains(Targets, m.Target) {
+		return manifest{}, fmt.Errorf("%w: target %q", errNotManifest, m.Target)
 	}
 	return m, nil
+}
+
+// previousManifest is the manifest the last export left in the output, for
+// release; false, with an error on ev saying why, when there is a file at its
+// name the plugin cannot take for its own: one the build wrote, one that is not
+// a manifest it writes, or one it cannot read.
+func previousManifest(ev *collage.BuildFinishedEvent) (manifest, bool) {
+	if source, ok := builtSource(ev, ManifestFile); ok {
+		ev.Error("/"+ManifestFile, "deploy-existing-file", fmt.Sprintf("%s is not read or written: the build wrote it (%s), and the plugin never overwrites a file it did not write; nothing is written; rename the build's file", ManifestFile, source))
+		return manifest{}, false
+	}
+	m, err := readManifest(ev.OutDir)
+	switch {
+	case errors.Is(err, errNotManifest):
+		ev.Error("/"+ManifestFile, "deploy-existing-file", fmt.Sprintf("%s is not read or written: %v, and the plugin never overwrites a file it did not write; nothing is written; remove it", ManifestFile, err))
+		return manifest{}, false
+	case err != nil:
+		ev.Error("/"+ManifestFile, "deploy-manifest", fmt.Sprintf("%s cannot be read (%v), so which files the plugin wrote last time is not known; nothing is written; remove it, and the files it listed", ManifestFile, err))
+		return manifest{}, false
+	}
+	return m, true
 }
 
 // release removes the files m lists that are still the plugin's — inside dir,

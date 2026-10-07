@@ -850,3 +850,87 @@ func TestCloudflareFitsAnAssetHeavySiteUnderItsRuleCap(t *testing.T) {
 		t.Errorf("_headers carries a Content-Type the extensions imply:\n%s", headers)
 	}
 }
+
+// TestABuiltManifestNameIsRefused: a file the build itself wrote at the
+// manifest's name is the application's, not the plugin's record: it is refused
+// as _headers would be, and neither read, removed nor replaced.
+func TestABuiltManifestNameIsRefused(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "victim"), nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	empty := sha256.Sum256(nil)
+	app := []byte(`{"target": "netlify", "files": [{"path": "victim", "sha256": "` + hex.EncodeToString(empty[:]) + `"}]}`)
+	if err := os.WriteFile(filepath.Join(dir, manifestName), app, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	ev := fixture(dir)
+	ev.Files = append(ev.Files, collage.BuiltFile{Kind: "document", Name: "mine", Path: "/" + manifestName, File: filepath.Join(dir, manifestName)})
+	run(t, "netlify", ev)
+	if errs := findings(ev, "deploy-existing-file"); len(errs) != 1 || !strings.Contains(errs[0].Message, manifestName) || !strings.Contains(errs[0].Message, `document "mine"`) {
+		t.Fatalf("findings = %+v", ev.Findings)
+	}
+	if got := read(t, dir, manifestName); got != string(app) {
+		t.Errorf("the application's %s was changed: %s", manifestName, got)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "victim")); err != nil {
+		t.Errorf("a file the application's document listed was removed: %v", err)
+	}
+	if got := tree(t, dir); len(got) != 2 {
+		t.Errorf("wrote %v", slices.Sorted(maps.Keys(got)))
+	}
+}
+
+// TestAManifestNotThePluginsIsRefused: a JSON file at the manifest's
+// name that is not one the plugin writes — an unknown field, or a target it
+// does not know — is not taken for its record.
+func TestAManifestNotThePluginsIsRefused(t *testing.T) {
+	for _, body := range []string{
+		`{"target": "netlify", "files": [], "mine": true}`,
+		`{"target": "heroku", "files": []}`,
+		`{"files": []}`,
+	} {
+		dir := t.TempDir()
+		if err := os.WriteFile(filepath.Join(dir, manifestName), []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		ev := fixture(dir)
+		run(t, "netlify", ev)
+		if errs := findings(ev, "deploy-existing-file"); len(errs) != 1 || !strings.Contains(errs[0].Message, manifestName) {
+			t.Errorf("%s: findings = %+v", body, ev.Findings)
+		}
+		if got := read(t, dir, manifestName); got != body {
+			t.Errorf("%s: replaced with %s", body, got)
+		}
+	}
+}
+
+// TestNoTargetRemovesTheLastExportsFiles: a build with no target writes
+// nothing for a host, and the files the last export wrote for one — unchanged
+// since — would otherwise be deployed with it; they are removed, the manifest
+// with them, and the warning says so. An edited one is left.
+func TestNoTargetRemovesTheLastExportsFiles(t *testing.T) {
+	dir := t.TempDir()
+	run(t, "netlify", fixture(dir))
+	if err := os.WriteFile(filepath.Join(dir, "_redirects"), []byte("/mine /x 301\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	ev := fixture(dir)
+	if err := deploy.New().OnBuildFinished(context.Background(), ev); err != nil {
+		t.Fatal(err)
+	}
+	got := tree(t, dir)
+	if _, ok := got["_headers"]; ok {
+		t.Error("_headers, written for netlify, is still there")
+	}
+	if _, ok := got[manifestName]; ok {
+		t.Error("the manifest is still there")
+	}
+	if string(got["_redirects"]) != "/mine /x 301\n" {
+		t.Errorf("the edited _redirects was not left alone: %q", got["_redirects"])
+	}
+	w := findings(ev, "deploy-target")
+	if len(w) != 1 || w[0].Level != collage.FindingWarning || !strings.Contains(w[0].Message, "netlify") || !strings.Contains(w[0].Message, "removed") {
+		t.Errorf("deploy-target = %+v, want one warning saying netlify's files were removed", w)
+	}
+}

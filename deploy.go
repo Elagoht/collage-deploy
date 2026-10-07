@@ -73,8 +73,7 @@ func (p *Plugin) Init(_ context.Context, host collage.Host) error {
 // OnBuildFinished writes the build's headers and redirects for the target.
 func (p *Plugin) OnBuildFinished(_ context.Context, ev *collage.BuildFinishedEvent) error {
 	if p.cfg.Target == "" {
-		ev.Warn("", "deploy-target", "no target set: nothing is written for a static host")
-		return nil
+		return p.noTarget(ev)
 	}
 	if !checkText(ev) {
 		return nil
@@ -82,21 +81,41 @@ func (p *Plugin) OnBuildFinished(_ context.Context, ev *collage.BuildFinishedEve
 	return p.write(ev)
 }
 
+// noTarget writes nothing for a host, and removes what the last export wrote
+// for one, unchanged since, so that it is not deployed with a build that has no
+// target.
+func (p *Plugin) noTarget(ev *collage.BuildFinishedEvent) error {
+	message := "no target set: nothing is written for a static host"
+	if ev.OutDir != "" {
+		previous, ok := previousManifest(ev)
+		if !ok {
+			return nil
+		}
+		if previous.Target != "" {
+			if err := previous.release(ev.OutDir, builtFiles(ev)); err != nil {
+				return err
+			}
+			message += fmt.Sprintf(", and the files the last export wrote for %s are removed, but for any changed since", previous.Target)
+		}
+	}
+	ev.Warn("", "deploy-target", message)
+	return nil
+}
+
 // write hands the build to the target's writer.
 func (p *Plugin) write(ev *collage.BuildFinishedEvent) error {
 	if ev.OutDir == "" {
 		return fmt.Errorf("elagoht/deploy: the build names no output directory to write into")
 	}
-	previous, err := readManifest(ev.OutDir)
-	if err != nil {
-		ev.Error("/"+ManifestFile, "deploy-manifest", fmt.Sprintf("%s cannot be read (%v), so which files the plugin wrote last time is not known; nothing is written; remove it, and the files it listed", ManifestFile, err))
+	previous, ok := previousManifest(ev)
+	if !ok {
 		return nil
 	}
 	if err := previous.release(ev.OutDir, builtFiles(ev)); err != nil {
 		return err
 	}
 	out := newOutput(ev.OutDir)
-	err = p.writeTarget(ev, out)
+	err := p.writeTarget(ev, out)
 	// What was written is recorded even when a writer failed part way, so the
 	// next build can replace it.
 	if recordErr := out.record(p.cfg.Target); err == nil {
