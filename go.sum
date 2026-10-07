@@ -1,2 +1,6 @@
+github.com/Elagoht/collage v0.52.0 h1:gPX01+sR30YjSZUaQmFpqYjleUieaCV89zLqScHT2D8=
+github.com/Elagoht/collage v0.52.0/go.mod h1:tyGWGpujZXtCFFxn9pjws85HOFOt4QdiuRswwQhj1Qw=
+github.com/Elagoht/collage-redirects v0.2.0 h1:j6boSg2TOnblWX4PfHOd0ad3mXSYRv4F0VzSIJidrc0=
+github.com/Elagoht/collage-redirects v0.2.0/go.mod h1:4k9y+9Qx4xlaHAvmnqbQ8L/7AvIWi7kzJhBg7kxzkNw=
 github.com/Elagoht/collage-secure v0.2.3 h1:H5EV7y9wrLQB3TBkV2Xg2VE4H57UZqQSPCLZfGEGyVc=
 github.com/Elagoht/collage-secure v0.2.3/go.mod h1:uP1carimhkYo4LOsUnK1VN2Rw8XqiD81uIYY9gXSiuQ=
