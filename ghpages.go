@@ -50,6 +50,10 @@ func writeGitHubPages(ev *collage.BuildFinishedEvent) error {
 			patterned = append(patterned, label)
 			continue
 		}
+		if authorityPlaceholder(r.To) {
+			unsafeRedirect(ev, r.BuiltRedirect, fmt.Errorf("%w: to %q", errAuthority, r.To))
+			continue
+		}
 		name, ok := refreshFile(r.From)
 		if !ok {
 			notHTML = append(notHTML, label)

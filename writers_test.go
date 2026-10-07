@@ -590,3 +590,29 @@ func TestVercelRouteLimitWording(t *testing.T) {
 		t.Errorf("findings = %+v", ev.Findings)
 	}
 }
+
+func TestPlaceholderInDestinationAuthorityIsAnError(t *testing.T) {
+	for _, target := range deploy.Targets {
+		for _, to := range []string{"http://{x}.example.com/p", "http://h:{x}/p"} {
+			dir := t.TempDir()
+			from := "/a/{x}"
+			if target == "github-pages" {
+				from = "/a"
+			}
+			ev := &collage.BuildFinishedEvent{OutDir: dir, Redirects: []collage.BuiltRedirect{
+				{From: from, To: to, Status: 301, Source: "elagoht/hosts"},
+				{From: "/ok", To: "/fine", Status: 301, Source: "page:ok"},
+			}}
+			run(t, target, ev)
+			errs := findings(ev, "deploy-unsafe-redirect")
+			if len(errs) != 1 || errs[0].Level != collage.FindingError || !strings.Contains(errs[0].Message, "elagoht/hosts") || !strings.Contains(errs[0].Message, to) {
+				t.Errorf("%s %s: findings = %+v", target, to, ev.Findings)
+			}
+			for name, data := range tree(t, dir) {
+				if bytes.Contains(data, []byte("example.com")) || bytes.Contains(data, []byte("h:")) && !bytes.Contains(data, []byte("http-equiv")) {
+					t.Errorf("%s %s: %s holds the rule:\n%s", target, to, name, data)
+				}
+			}
+		}
+	}
+}

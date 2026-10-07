@@ -1,6 +1,7 @@
 package deploy
 
 import (
+	"errors"
 	"fmt"
 	"sort"
 	"strconv"
@@ -254,6 +255,9 @@ func translate(r redirect, sx syntax, toLiteral func(string) error) (from, to st
 	if r.Status == 410 {
 		return from, "", nil
 	}
+	if authorityPlaceholder(r.To) {
+		return "", "", fmt.Errorf("%w: to %q", errAuthority, r.To)
+	}
 	// To: every "{name}" (or "{name...}" for the catch-all) becomes the host's
 	// spelling; the text between is the host's to read as it stands.
 	var t strings.Builder
@@ -315,4 +319,34 @@ func placeholderLike(text string) bool {
 		}
 	}
 	return false
+}
+
+// errAuthority is a destination with a placeholder in its scheme://authority:
+// the request would choose the host a visitor is sent to. The core refuses
+// such a rule from a plugin (url.Parse rejects the brace) and a page's or
+// document's destination is a path, so one reaching a writer is an error.
+var errAuthority = errors.New("a placeholder in the destination's host would let a request choose where it is sent")
+
+// authorityPlaceholder reports whether to is an absolute URL with "{" or "}"
+// in its scheme://authority.
+func authorityPlaceholder(to string) bool {
+	at := strings.Index(to, "://")
+	if at < 0 || !validScheme(to[:at]) {
+		return false
+	}
+	authority := to[at+3:]
+	if end := strings.IndexAny(authority, "/?#"); end >= 0 {
+		authority = authority[:end]
+	}
+	return strings.ContainsAny(authority, "{}")
+}
+
+// unsafeRedirect reports err as an error naming r's source when it is
+// errAuthority, and reports whether it was.
+func unsafeRedirect(ev *collage.BuildFinishedEvent, r collage.BuiltRedirect, err error) bool {
+	if !errors.Is(err, errAuthority) {
+		return false
+	}
+	ev.Error(findingPath(r.From), "deploy-unsafe-redirect", fmt.Sprintf("redirect from %q (%s) is not written: %v", r.From, r.Source, err))
+	return true
 }

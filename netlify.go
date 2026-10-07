@@ -188,6 +188,9 @@ func (h lineHost) redirects(ev *collage.BuildFinishedEvent) string {
 		}
 		from, to, err := translate(r, lineSyntax, lineTo)
 		if err != nil {
+			if unsafeRedirect(ev, r.BuiltRedirect, err) {
+				continue
+			}
 			unwritable = append(unwritable, fmt.Sprintf("%s: %v", label, err))
 			continue
 		}

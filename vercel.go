@@ -151,6 +151,9 @@ func writeVercel(ev *collage.BuildFinishedEvent, rules []HeaderRule) error {
 		}
 		from, to, err := translate(r, vercelSyntax, vercelTo)
 		if err != nil {
+			if unsafeRedirect(ev, r.BuiltRedirect, err) {
+				continue
+			}
 			unwritable = append(unwritable, fmt.Sprintf("%s: %v", label, err))
 			continue
 		}
