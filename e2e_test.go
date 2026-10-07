@@ -114,6 +114,17 @@ func assertLines(t *testing.T, name, body string, want ...string) {
 	}
 }
 
+// headerBlock returns the lines of _headers' rule for path: its path line and
+// the indented header lines under it, up to the next blank line.
+func headerBlock(headers, path string) string {
+	for _, block := range strings.Split(headers, "\n\n") {
+		if first, _, _ := strings.Cut(block, "\n"); first == path {
+			return block
+		}
+	}
+	return ""
+}
+
 func assertNoNonceCSP(t *testing.T, name, body string) {
 	t.Helper()
 	if strings.Contains(body, "Content-Security-Policy") || strings.Contains(body, "nonce-") {
@@ -131,8 +142,10 @@ func TestEndToEnd_NetlifyAndCloudflare(t *testing.T) {
 			headers := read(t, out, "_headers")
 			assertLines(t, "_headers", headers,
 				"  Referrer-Policy: same-origin",
-				"  Content-Type: application/rss+xml; charset=utf-8",
 				"  Cache-Control: public, max-age=31536000, immutable",
+			)
+			assertLines(t, "_headers /feed.xml block", headerBlock(headers, "/feed.xml"),
+				"  Content-Type: application/rss+xml; charset=utf-8",
 			)
 			assertNoNonceCSP(t, "_headers", headers)
 			redirectsFile := read(t, out, "_redirects")
@@ -174,12 +187,18 @@ func TestEndToEnd_Vercel(t *testing.T) {
 		t.Fatalf("vercel.json: %v\n%s", err, body)
 	}
 	var all []vercelHeader
+	feedType := false
 	for _, rule := range cfg.Headers {
 		all = append(all, rule.Headers...)
+		if rule.Source == "/feed.xml" {
+			feedType = slices.Contains(rule.Headers, vercelHeader{"Content-Type", "application/rss+xml; charset=utf-8"})
+		}
+	}
+	if !feedType {
+		t.Errorf("vercel.json has no Content-Type for /feed.xml:\n%s", body)
 	}
 	for _, want := range []vercelHeader{
 		{"Referrer-Policy", "same-origin"},
-		{"Content-Type", "application/rss+xml; charset=utf-8"},
 		{"Cache-Control", "public, max-age=31536000, immutable"},
 	} {
 		if !slices.Contains(all, want) {
