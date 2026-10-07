@@ -93,6 +93,10 @@ func assertExactIn(t *testing.T, out string, files []collage.BuiltFile) {
 					seen[name] = r.Path
 				}
 			}
+		case f.Captured && f.Status == 0:
+			if got := deploy.Expand(rules, served); len(got) != 0 {
+				t.Errorf("%s, whose capture failed, gets %v from the rules", f.Path, got)
+			}
 		case !f.Captured && (f.Status == 0 || f.Headers == nil):
 			if got := deploy.Expand(rules, served); !reflect.DeepEqual(got, root) {
 				t.Errorf("uncaptured %s gets %v, want only the /* headers %v", f.Path, got, root)
@@ -354,7 +358,7 @@ func TestRuleOrder(t *testing.T) {
 func TestExpandReproducesEveryFileProperty(t *testing.T) {
 	rng := rand.New(rand.NewSource(7))
 	dirs := []string{"/", "/a/", "/a/b/", "/c/", "/c/d/e/"}
-	names := []string{"A", "B", "C", "Cache-Control"}
+	names := []string{"A", "B", "C", "Cache-Control", "Content-Type"}
 	vals := []string{"1", "2"}
 	withWildcard := 0
 	for trial := range 300 {
@@ -460,4 +464,58 @@ func TestASectionIndexKeepsItsOwnHeaders(t *testing.T) {
 		t.Errorf("a rule is written at /blog, which the host never serves the page at: %v", rules)
 	}
 	assertExactIn(t, out, files)
+}
+
+// TestPerPathHeadersNeverGoInAWildcard: Content-Type, Content-Disposition and
+// Content-Language describe one file. "/*" and "/dir/*" also reach the files
+// other plugins write into the output — share cards, a search index — so these
+// stay at each file's own path even when every captured file shares them.
+func TestPerPathHeadersNeverGoInAWildcard(t *testing.T) {
+	files := []collage.BuiltFile{
+		ok("/", "Content-Type", html, "Content-Language", "en", "Content-Disposition", "inline", "X-Content-Type-Options", nosniff),
+		ok("/about/", "Content-Type", html, "Content-Language", "en", "Content-Disposition", "inline", "X-Content-Type-Options", nosniff),
+		ok("/static/a.css", "Content-Type", "text/css", "Content-Language", "en", "Content-Disposition", "inline", "X-Content-Type-Options", nosniff, "Cache-Control", immutable),
+		ok("/static/b.css", "Content-Type", "text/css", "Content-Language", "en", "Content-Disposition", "inline", "X-Content-Type-Options", nosniff, "Cache-Control", immutable),
+	}
+	rules := deploy.Compact("", files)
+	if r := find(rules, "/*"); r == nil || r.Headers.Get("X-Content-Type-Options") != nosniff {
+		t.Errorf("rules = %v, want X-Content-Type-Options under /*", rules)
+	}
+	if r := find(rules, "/static/*"); r == nil || r.Headers.Get("Cache-Control") != immutable {
+		t.Errorf("rules = %v, want Cache-Control under /static/*", rules)
+	}
+	for _, p := range []string{"/", "/about/", "/static/a.css", "/static/b.css"} {
+		if r := find(rules, p); r == nil || r.Headers.Get("Content-Type") == "" || r.Headers.Get("Content-Language") == "" || r.Headers.Get("Content-Disposition") == "" {
+			t.Errorf("rule for %s = %v, want its own Content-Type, Content-Language and Content-Disposition", p, r)
+		}
+	}
+	assertExact(t, files)
+}
+
+// TestAFailedCaptureBlocksWildcards: a file the build asked for and got no
+// answer for has headers nobody knows. It blocks "/*" and its directory's
+// wildcard, as a file answered with a redirect or an error does, so the headers
+// the others share are not handed to it.
+func TestAFailedCaptureBlocksWildcards(t *testing.T) {
+	failed := collage.BuiltFile{Path: "/static/c.css", Captured: true}
+	files := []collage.BuiltFile{
+		ok("/static/a.css", "Cache-Control", immutable),
+		ok("/static/b.css", "Cache-Control", immutable),
+		failed,
+	}
+	for i := range files[:2] {
+		files[i].Captured = true
+	}
+	rules := deploy.Compact("", files)
+	if find(rules, "/*") != nil || find(rules, "/static/*") != nil {
+		t.Fatalf("a wildcard reaches the file whose capture failed: %v", rules)
+	}
+	assertExact(t, files)
+
+	// The same file not asked for — one the build made itself — is reached by
+	// "/*", as before.
+	files[2].Captured = false
+	if find(deploy.Compact("", files), "/*") == nil {
+		t.Errorf("a file the build made itself blocks /*")
+	}
 }

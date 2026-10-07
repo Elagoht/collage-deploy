@@ -47,6 +47,15 @@ func ServedAt(outDir string, f collage.BuiltFile) string {
 	return ServedPath(f.Path)
 }
 
+// perPath are headers that describe one file, written only at its own path:
+// "/*" and "/dir/*" also reach the files other plugins write into the output —
+// a share card, a search index — which a host would then serve as, say,
+// text/html.
+var perPath = []string{"Content-Type", "Content-Disposition", "Content-Language"}
+
+// wildcardable reports whether a header may go in a "/*" or "/dir/*" rule.
+func wildcardable(name string) bool { return !slices.Contains(perPath, name) }
+
 // entry is one built file as compaction sees it.
 type entry struct {
 	path string
@@ -54,7 +63,8 @@ type entry struct {
 	// known, and a rule may speak for it.
 	captured bool
 	// blocking is a file that was asked for and answered otherwise (a redirect,
-	// a 404): "/*" would hand it headers it was never answered with.
+	// a 404), or whose capture failed or was never reached: "/*" would hand it
+	// headers it was never answered with.
 	blocking bool
 	headers  http.Header
 }
@@ -80,8 +90,8 @@ func entries(outDir string, files []collage.BuiltFile) []entry {
 				key := textproto.CanonicalMIMEHeaderKey(name)
 				e.headers[key] = append(e.headers[key], f.Headers[name]...)
 			}
-		case f.Status != 0 && (f.Status < 200 || f.Status > 299):
-			e.blocking = true
+		case f.Status < 200 || f.Status > 299:
+			e.blocking = f.Status != 0 || f.Captured
 		}
 		out = append(out, e)
 	}
@@ -94,6 +104,17 @@ func entries(outDir string, files []collage.BuiltFile) []entry {
 		}
 		return headerKey(out[i].headers) < headerKey(out[j].headers)
 	})
+	return out
+}
+
+// wildcardPart is a copy of the headers of h a wildcard rule may carry.
+func wildcardPart(h http.Header) http.Header {
+	out := http.Header{}
+	for name, values := range h {
+		if wildcardable(name) {
+			out[name] = slices.Clone(values)
+		}
+	}
 	return out
 }
 
@@ -152,6 +173,9 @@ func Compact(outDir string, files []collage.BuiltFile) []HeaderRule {
 	if !blocked {
 		common := http.Header{}
 		for name, values := range caps[0].headers {
+			if !wildcardable(name) {
+				continue
+			}
 			shared := true
 			for _, c := range caps[1:] {
 				if !slices.Equal(c.headers[name], values) {
@@ -208,13 +232,17 @@ func Compact(outDir string, files []collage.BuiltFile) []HeaderRule {
 			}
 			under = append(under, e)
 		}
-		if !whole || len(under) < 2 || len(under[0].headers) == 0 {
+		if !whole || len(under) < 2 {
 			continue
 		}
-		key := headerKey(under[0].headers)
+		shared := wildcardPart(under[0].headers)
+		if len(shared) == 0 {
+			continue
+		}
+		key := headerKey(shared)
 		same := true
 		for _, c := range under[1:] {
-			if headerKey(c.headers) != key {
+			if headerKey(wildcardPart(c.headers)) != key {
 				same = false
 				break
 			}
@@ -222,13 +250,11 @@ func Compact(outDir string, files []collage.BuiltFile) []HeaderRule {
 		if !same {
 			continue
 		}
-		shared := http.Header{}
-		for name, values := range under[0].headers {
-			shared[name] = slices.Clone(values)
-		}
 		wildcards = append(wildcards, HeaderRule{Path: d + "*", Headers: shared})
 		for _, c := range under {
-			clear(c.headers)
+			for name := range shared {
+				delete(c.headers, name)
+			}
 		}
 	}
 	sort.Slice(wildcards, func(i, j int) bool { return wildcards[i].Path < wildcards[j].Path })

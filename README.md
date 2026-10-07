@@ -124,11 +124,17 @@ written only when it carries the index's headers too.
 
 A file the build did not ask for (the 404 pages it writes, the root redirect)
 carries no headers of its own, but a host cannot tell it from the rest, so the
-`/*` headers reach it, the 404 pages included. A `/dir/*` rule is written only
-when every file under the directory is a captured 2xx file sharing the headers, so
-it never reaches such a file. A file that was asked for and answered otherwise than
-2xx (a redirect, an error) blocks `/*`: its headers are not the pages', and the
-rules fall back to directories and single paths.
+`/*` headers reach it, the 404 pages included. `/*` also reaches every file other
+plugins write into the output in their own build hook — share-card images, a
+search index, compressed siblings — so `Content-Type`, `Content-Disposition` and
+`Content-Language` never go into `/*` or a `/dir/*` rule: they stay at each file's
+own path, and a host types every other file by its extension as usual. A `/dir/*`
+rule is written only when every file under the directory is a captured 2xx file
+sharing the headers, so it never reaches such a file. A file that was asked for
+and answered otherwise than 2xx (a redirect, an error), or whose capture failed or
+was never reached (`BuiltFile.Captured` with no status), blocks `/*` and its
+directory's wildcard: its headers are not the pages', and the rules fall back to
+directories and single paths.
 
 ## Configuration
 
