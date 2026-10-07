@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"os"
 	"strings"
 	"testing"
 	"testing/fstest"
@@ -69,6 +70,9 @@ func TestEmptyTargetWarnsOnce(t *testing.T) {
 	if err := deploy.New().OnBuildFinished(context.Background(), ev); err != nil {
 		t.Fatal(err)
 	}
+	if entries, err := os.ReadDir(dir); err != nil || len(entries) != 0 {
+		t.Errorf("the output directory holds %v (%v)", entries, err)
+	}
 	if len(ev.Findings) != 1 || ev.Findings[0].Rule != "deploy-target" || ev.Findings[0].Level != collage.FindingWarning {
 		t.Fatalf("findings = %+v", ev.Findings)
 	}
@@ -91,6 +95,9 @@ func TestControlCharacterInRedirectIsAnErrorNamingItsSource(t *testing.T) {
 		t.Fatalf("findings = %+v", ev.Findings)
 	}
 	f := ev.Findings[0]
+	if strings.ContainsAny(f.Path, "\n\r") {
+		t.Errorf("finding path holds a raw control character: %q", f.Path)
+	}
 	if f.Level != collage.FindingError || f.Rule != "deploy-control-character" || !strings.Contains(f.Message, "elagoht/redirects") || !strings.Contains(f.Message, "/old") {
 		t.Errorf("finding = %+v", f)
 	}
@@ -103,6 +110,16 @@ func TestControlCharacterInHeaderIsAnError(t *testing.T) {
 	finishedWith(t, ev)
 	if len(ev.Findings) != 1 || ev.Findings[0].Level != collage.FindingError || ev.Findings[0].Path != "/x" {
 		t.Fatalf("findings = %+v", ev.Findings)
+	}
+}
+
+func TestLineSeparatorsAreControlCharacters(t *testing.T) {
+	for _, sep := range []string{"\u2028", "\u2029"} {
+		ev := &collage.BuildFinishedEvent{Redirects: []collage.BuiltRedirect{{From: "/a" + sep + "b", To: "/c", Status: 301}}}
+		finishedWith(t, ev)
+		if len(ev.Findings) != 1 {
+			t.Errorf("%q: findings = %+v", sep, ev.Findings)
+		}
 	}
 }
 

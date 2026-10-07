@@ -15,6 +15,7 @@ import (
 	"net/http"
 	"slices"
 	"sort"
+	"strconv"
 	"unicode"
 
 	"github.com/Elagoht/collage/pkg/collage"
@@ -94,7 +95,7 @@ func checkText(ev *collage.BuildFinishedEvent) bool {
 	for _, r := range ev.Redirects {
 		for _, field := range []struct{ name, value string }{{"from", r.From}, {"to", r.To}} {
 			if hasControl(field.value) {
-				ev.Error(r.From, "deploy-control-character", fmt.Sprintf("redirect from %q (%s): %s %q holds a control character", r.From, r.Source, field.name, field.value))
+				ev.Error(findingPath(r.From), "deploy-control-character", fmt.Sprintf("redirect from %q (%s): %s %q holds a control character", r.From, r.Source, field.name, field.value))
 				clean = false
 			}
 		}
@@ -107,7 +108,7 @@ func checkText(ev *collage.BuildFinishedEvent) bool {
 		sort.Strings(names)
 		for _, name := range names {
 			if bad := headerText(name, f.Headers); bad != "" {
-				ev.Error(f.Path, "deploy-control-character", fmt.Sprintf("header %q of %s holds a control character: %q", name, f.Path, bad))
+				ev.Error(findingPath(f.Path), "deploy-control-character", fmt.Sprintf("header %q of %s holds a control character: %q", name, f.Path, bad))
 				clean = false
 			}
 		}
@@ -129,9 +130,18 @@ func headerText(name string, h http.Header) string {
 	return ""
 }
 
+// findingPath is a path made safe to print in a report: quoted when it holds a
+// control character.
+func findingPath(path string) string {
+	if hasControl(path) {
+		return strconv.Quote(path)
+	}
+	return path
+}
+
 func hasControl(s string) bool {
 	for _, r := range s {
-		if unicode.IsControl(r) || r == ' ' || r == ' ' {
+		if unicode.IsControl(r) || r == '\u2028' || r == '\u2029' {
 			return true
 		}
 	}

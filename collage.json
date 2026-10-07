@@ -1,0 +1,24 @@
+{
+  "$schema": "https://raw.githubusercontent.com/Elagoht/collage-snippets-highlighter/main/schemas/collage-plugin-manifest.schema.json",
+  "name": "elagoht/deploy",
+  "description": "A collage plugin that turns a static build's captured headers and redirects into the configuration files a static host reads.",
+  "repository": "https://github.com/Elagoht/collage-deploy",
+  "config": {
+    "type": "object",
+    "description": "A collage plugin that turns a static build's captured headers and redirects into the configuration files a static host reads.",
+    "properties": {
+      "target": {
+        "type": "string",
+        "enum": [
+          "",
+          "netlify",
+          "cloudflare",
+          "vercel",
+          "github-pages"
+        ],
+        "description": "Target is the host to write for: \"netlify\", \"cloudflare\", \"vercel\" or \"github-pages\". Empty writes nothing."
+      }
+    },
+    "additionalProperties": false
+  }
+}

@@ -1,10 +1,12 @@
 package deploy_test
 
 import (
+	"fmt"
 	"math/rand"
 	"net/http"
 	"reflect"
 	"slices"
+	"strings"
 	"testing"
 
 	deploy "github.com/Elagoht/collage-deploy"
@@ -37,16 +39,47 @@ func find(rules []deploy.HeaderRule, path string) *deploy.HeaderRule {
 	return nil
 }
 
+func isCaptured(f collage.BuiltFile) bool {
+	return f.Status >= 200 && f.Status <= 299 && f.Headers != nil
+}
+
+// assertExact holds Compact to its policy: a host applying the rules gives every
+// captured 2xx file exactly its own headers, never sets one header name in two
+// rules for one file, and gives a file that was not asked for (status 0) nothing
+// but the "/*" headers.
 func assertExact(t *testing.T, files []collage.BuiltFile) {
 	t.Helper()
 	rules := deploy.Compact(files)
+	root := http.Header{}
+	if r := find(rules, "/*"); r != nil {
+		root = r.Headers
+	}
 	for _, f := range files {
-		if f.Status < 200 || f.Status > 299 || f.Headers == nil {
-			continue
-		}
-		got := deploy.Expand(rules, deploy.ServedPath(f.Path))
-		if !reflect.DeepEqual(got, f.Headers) {
-			t.Errorf("Expand(%s) = %v, want %v\nrules: %v", f.Path, got, f.Headers, rules)
+		served := deploy.ServedPath(f.Path)
+		switch {
+		case isCaptured(f):
+			if got := deploy.Expand(rules, served); !reflect.DeepEqual(got, f.Headers) {
+				t.Errorf("Expand(%s) = %v, want %v\nrules: %v", f.Path, got, f.Headers, rules)
+			}
+			seen := map[string]string{}
+			for _, r := range rules {
+				if !strings.HasSuffix(r.Path, "*") && r.Path != served {
+					continue
+				}
+				if strings.HasSuffix(r.Path, "*") && !strings.HasPrefix(served, strings.TrimSuffix(r.Path, "*")) {
+					continue
+				}
+				for name := range r.Headers {
+					if prev, dup := seen[name]; dup {
+						t.Errorf("%s: header %s is set by both %s and %s", f.Path, name, prev, r.Path)
+					}
+					seen[name] = r.Path
+				}
+			}
+		case f.Status == 0 || f.Headers == nil:
+			if got := deploy.Expand(rules, served); !reflect.DeepEqual(got, root) {
+				t.Errorf("uncaptured %s gets %v, want only the /* headers %v", f.Path, got, root)
+			}
 		}
 	}
 }
@@ -159,31 +192,96 @@ func TestIndexPageUnderItsOwnDirectory(t *testing.T) {
 	assertExact(t, files)
 }
 
-func TestNotCapturedContributeNothing(t *testing.T) {
+func TestUncapturedFilesGetOnlyRootHeaders(t *testing.T) {
 	files := []collage.BuiltFile{
 		ok("/", "A", "1"),
-		ok("/b", "A", "1"),
+		ok("/b", "A", "1", "B", "2"),
 		file("/uncaptured", 0, http.Header{"A": {"9"}}),
 		file("/nilheaders", 200, nil),
-		file("/old", 301, http.Header{"Location": {"/new"}, "A": {"7"}}),
-		file("/gone", 404, http.Header{"A": {"7"}}),
+		file("/404.html", 0, nil),
 	}
 	rules := deploy.Compact(files)
-	if len(rules) != 1 || rules[0].Path != "/*" || rules[0].Headers.Get("A") != "1" {
-		t.Fatalf("rules = %v", rules)
-	}
-	if deploy.Compact(nil) != nil || deploy.Compact(files[2:]) != nil {
-		t.Error("nothing captured should give no rules")
-	}
-}
-
-func TestLoneFileKeepsItsOwnRule(t *testing.T) {
-	files := []collage.BuiltFile{ok("/only", "A", "1")}
-	rules := deploy.Compact(files)
-	if len(rules) != 1 || rules[0].Path != "/only" {
+	if root := find(rules, "/*"); root == nil || root.Headers.Get("A") != "1" {
 		t.Fatalf("rules = %v", rules)
 	}
 	assertExact(t, files)
+	if got := deploy.Expand(rules, "/404.html"); !reflect.DeepEqual(got, http.Header{"A": {"1"}}) {
+		t.Errorf("404 page gets %v", got)
+	}
+}
+
+func TestCapturedNon2xxBlocksRoot(t *testing.T) {
+	files := []collage.BuiltFile{
+		ok("/", "A", "1"),
+		ok("/b", "A", "1"),
+		file("/old", 301, http.Header{"Location": {"/new"}}),
+	}
+	rules := deploy.Compact(files)
+	if find(rules, "/*") != nil {
+		t.Fatalf("/* emitted beside a captured redirect: %v", rules)
+	}
+	if find(rules, "/") == nil || find(rules, "/b") == nil {
+		t.Fatalf("expected per-path rules: %v", rules)
+	}
+	assertExact(t, files)
+	if got := deploy.Expand(rules, "/old"); len(got) != 0 {
+		t.Errorf("the redirect gets %v", got)
+	}
+}
+
+func TestUncapturedFileBlocksDirectoryWildcard(t *testing.T) {
+	files := []collage.BuiltFile{
+		ok("/static/a.css", "Cache-Control", immutable),
+		ok("/static/b.css", "Cache-Control", immutable),
+		file("/static/raw.bin", 0, nil),
+	}
+	if r := find(deploy.Compact(files), "/static/*"); r != nil {
+		t.Fatalf("wildcard reaches an uncaptured file: %v", r)
+	}
+	assertExact(t, files)
+}
+
+func TestNon2xxFileBlocksDirectoryWildcard(t *testing.T) {
+	files := []collage.BuiltFile{
+		ok("/docs/a", "A", "1"),
+		ok("/docs/b", "A", "1"),
+		file("/docs/gone", 404, http.Header{"A": {"1"}}),
+	}
+	if r := find(deploy.Compact(files), "/docs/*"); r != nil {
+		t.Fatalf("wildcard reaches a 404: %v", r)
+	}
+	assertExact(t, files)
+}
+
+func TestNothingCapturedGivesNoRules(t *testing.T) {
+	if deploy.Compact(nil) != nil {
+		t.Error("nil")
+	}
+	if got := deploy.Compact([]collage.BuiltFile{file("/a", 0, nil), file("/b", 404, http.Header{"A": {"1"}})}); got != nil {
+		t.Errorf("rules = %v", got)
+	}
+}
+
+func TestLoneFileGoesToRoot(t *testing.T) {
+	files := []collage.BuiltFile{ok("/only", "A", "1"), file("/404.html", 0, nil)}
+	rules := deploy.Compact(files)
+	if len(rules) != 1 || rules[0].Path != "/*" {
+		t.Fatalf("rules = %v", rules)
+	}
+	assertExact(t, files)
+}
+
+func TestTwoSpellingsOfOneHeaderMergeDeterministically(t *testing.T) {
+	a := file("/x", 200, http.Header{"x-a": {"1"}, "X-A": {"2"}})
+	want := deploy.Compact([]collage.BuiltFile{a})
+	for range 30 {
+		if got := deploy.Compact([]collage.BuiltFile{a}); !reflect.DeepEqual(got, want) {
+			t.Fatalf("merge order varies: %v vs %v", got, want)
+		}
+	}
+	if len(want) != 1 || len(want[0].Headers["X-A"]) != 2 {
+		t.Fatalf("rules = %v", want)
+	}
 }
 
 func TestValueOrderAndMultipleValuesSurvive(t *testing.T) {
@@ -233,17 +331,31 @@ func TestRuleOrder(t *testing.T) {
 }
 
 // A randomised site: whatever the headers, a host applying the rules must give
-// every captured file exactly its own.
+// every captured file exactly its own, and an uncaptured one only "/*". Each
+// directory draws one shared header set that its files seldom stray from, so
+// wildcards are common.
 func TestExpandReproducesEveryFileProperty(t *testing.T) {
 	rng := rand.New(rand.NewSource(7))
 	dirs := []string{"/", "/a/", "/a/b/", "/c/", "/c/d/e/"}
 	names := []string{"A", "B", "C", "Cache-Control"}
 	vals := []string{"1", "2"}
+	withWildcard := 0
 	for trial := range 300 {
+		shared := map[string]http.Header{}
+		for _, d := range dirs {
+			h := http.Header{}
+			for _, n := range names {
+				if rng.Intn(2) == 0 {
+					h.Add(n, vals[rng.Intn(len(vals))])
+				}
+			}
+			shared[d] = h
+		}
 		var files []collage.BuiltFile
 		seen := map[string]bool{}
-		for i := range 2 + rng.Intn(10) {
-			p := dirs[rng.Intn(len(dirs))] + string(rune('a'+i))
+		for i := range 3 + rng.Intn(10) {
+			d := dirs[rng.Intn(len(dirs))]
+			p := d + string(rune('a'+i))
 			if rng.Intn(4) == 0 {
 				p += "/"
 			}
@@ -251,24 +363,31 @@ func TestExpandReproducesEveryFileProperty(t *testing.T) {
 				continue
 			}
 			seen[p] = true
-			h := http.Header{}
-			for _, n := range names {
-				if rng.Intn(3) > 0 {
-					h.Add(n, vals[rng.Intn(len(vals))])
-					if rng.Intn(5) == 0 {
-						h.Add(n, "extra")
-					}
-				}
+			h := shared[d].Clone()
+			if rng.Intn(12) == 0 {
+				h.Add(names[rng.Intn(len(names))], "stray")
 			}
 			status := 200
-			if rng.Intn(8) == 0 {
+			switch rng.Intn(14) {
+			case 0:
 				status = 404
+			case 1:
+				status, h = 0, nil
+			case 2:
+				status = 301
 			}
 			files = append(files, file(p, status, h))
 		}
-		t.Run("", func(t *testing.T) {
-			assertExact(t, files)
-		})
-		_ = trial
+		rules := deploy.Compact(files)
+		for _, r := range rules {
+			if r.Path != "/*" && strings.HasSuffix(r.Path, "*") {
+				withWildcard++
+				break
+			}
+		}
+		t.Run(fmt.Sprintf("site-%03d", trial), func(t *testing.T) { assertExact(t, files) })
+	}
+	if withWildcard < 50 {
+		t.Errorf("only %d of 300 sites produced a directory wildcard; the property is not exercising them", withWildcard)
 	}
 }

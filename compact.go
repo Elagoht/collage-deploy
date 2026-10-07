@@ -32,34 +32,50 @@ func ServedPath(path string) string {
 	return path
 }
 
-// captured is a file whose headers the build recorded, canonicalised.
-type captured struct {
-	path    string
-	headers http.Header
+// entry is one built file as compaction sees it.
+type entry struct {
+	path string
+	// captured is a file the build asked for and answered 2xx: its headers are
+	// known, and a rule may speak for it.
+	captured bool
+	// blocking is a file that was asked for and answered otherwise (a redirect,
+	// a 404): "/*" would hand it headers it was never answered with.
+	blocking bool
+	headers  http.Header
 }
 
-// capturedFiles keeps the files a host should carry headers for: those the build
-// asked for with a 2xx status and headers. A redirect's or an error page's headers
-// are not what the path's own answer carries, so they are left out.
-func capturedFiles(files []collage.BuiltFile) []captured {
-	var out []captured
+// entries canonicalises every file, in an order that does not depend on the order
+// they were given in.
+func entries(files []collage.BuiltFile) []entry {
+	out := make([]entry, 0, len(files))
 	for _, f := range files {
-		if f.Status < 200 || f.Status > 299 || f.Headers == nil {
-			continue
-		}
-		h := http.Header{}
-		for name, values := range f.Headers {
-			if len(values) == 0 {
-				continue
+		e := entry{path: ServedPath(f.Path), headers: http.Header{}}
+		switch {
+		case f.Status >= 200 && f.Status <= 299 && f.Headers != nil:
+			e.captured = true
+			names := make([]string, 0, len(f.Headers))
+			for name := range f.Headers {
+				names = append(names, name)
 			}
-			key := textproto.CanonicalMIMEHeaderKey(name)
-			h[key] = append(h[key], values...)
+			sort.Strings(names)
+			for _, name := range names {
+				if len(f.Headers[name]) == 0 {
+					continue
+				}
+				key := textproto.CanonicalMIMEHeaderKey(name)
+				e.headers[key] = append(e.headers[key], f.Headers[name]...)
+			}
+		case f.Status != 0 && (f.Status < 200 || f.Status > 299):
+			e.blocking = true
 		}
-		out = append(out, captured{path: ServedPath(f.Path), headers: h})
+		out = append(out, e)
 	}
 	sort.SliceStable(out, func(i, j int) bool {
 		if out[i].path != out[j].path {
 			return out[i].path < out[j].path
+		}
+		if out[i].captured != out[j].captured {
+			return out[i].captured
 		}
 		return headerKey(out[i].headers) < headerKey(out[j].headers)
 	})
@@ -86,19 +102,39 @@ func headerKey(h http.Header) string {
 }
 
 // Compact turns the headers each file was answered with into the fewest rules
-// that give every captured file exactly its own headers back: what every file
-// shares in "/*", what every file of a directory shares in "/dir/*", the rest at
-// the file's own path. The result does not depend on the order of files.
+// that give every captured file exactly its own headers back: what every captured
+// file shares in "/*", what every file of a directory shares in "/dir/*", the
+// rest at the file's own path. The result does not depend on the order of files.
+//
+// Files the build did not ask for (status 0, or no headers) are not captured and
+// contribute nothing, but a host cannot tell them from the rest, so:
+//
+//   - "/*" reaches them. A site's 404 pages are such files and receive the
+//     headers every captured page shares; that is the intent of "/*".
+//   - "/dir/*" is emitted only when every file under dir is a captured 2xx file
+//     sharing the headers, so a wildcard never reaches an uncaptured file.
+//   - A file asked for and answered other than 2xx (a redirect, a 404) blocks
+//     "/*" altogether: its own response does not carry what the pages do. Rules
+//     then fall back to directories and paths.
 func Compact(files []collage.BuiltFile) []HeaderRule {
-	caps := capturedFiles(files)
+	all := entries(files)
+	var caps []entry
+	blocked := false
+	for _, e := range all {
+		if e.captured {
+			caps = append(caps, e)
+		}
+		if e.blocking {
+			blocked = true
+		}
+	}
 	if len(caps) == 0 {
 		return nil
 	}
 	var rules []HeaderRule
 
-	// 1. What every file carries. A lone file's headers stay at its own path: "/*"
-	// would also reach the files the build did not capture.
-	if len(caps) >= 2 {
+	// 1. What every captured file carries.
+	if !blocked {
 		common := http.Header{}
 		for name, values := range caps[0].headers {
 			shared := true
@@ -122,13 +158,13 @@ func Compact(files []collage.BuiltFile) []HeaderRule {
 		}
 	}
 
-	// 2. Directories, deepest first: one holding two or more files that all
-	// carry the same non-empty remainder gets it as a wildcard.
+	// 2. Directories, deepest first: one holding two or more files, every one of
+	// them captured with the same non-empty remainder, gets it as a wildcard.
 	dirs := map[string]bool{}
-	for _, c := range caps {
-		for i := 1; i < len(c.path); i++ {
-			if c.path[i] == '/' {
-				dirs[c.path[:i+1]] = true
+	for _, e := range all {
+		for i := 1; i < len(e.path); i++ {
+			if e.path[i] == '/' {
+				dirs[e.path[:i+1]] = true
 			}
 		}
 	}
@@ -145,13 +181,19 @@ func Compact(files []collage.BuiltFile) []HeaderRule {
 	})
 	var wildcards []HeaderRule
 	for _, d := range ordered {
-		var under []captured
-		for _, c := range caps {
-			if strings.HasPrefix(c.path, d) {
-				under = append(under, c)
+		var under []entry
+		whole := true
+		for _, e := range all {
+			if !strings.HasPrefix(e.path, d) {
+				continue
 			}
+			if !e.captured {
+				whole = false
+				break
+			}
+			under = append(under, e)
 		}
-		if len(under) < 2 || len(under[0].headers) == 0 {
+		if !whole || len(under) < 2 || len(under[0].headers) == 0 {
 			continue
 		}
 		key := headerKey(under[0].headers)
