@@ -75,8 +75,15 @@ func assertExactIn(t *testing.T, out string, files []collage.BuiltFile) {
 		served := deploy.ServedAt(out, f)
 		switch {
 		case isCaptured(f):
-			if got := deploy.Expand(rules, served); !reflect.DeepEqual(got, f.Headers) {
-				t.Errorf("Expand(%s) = %v, want %v\nrules: %v", f.Path, got, f.Headers, rules)
+			// A Content-Type the extension implies is the host's to supply:
+			// the rules leave it out.
+			want := f.Headers
+			if deploy.ImpliedByExtension(out, f) {
+				want = f.Headers.Clone()
+				want.Del("Content-Type")
+			}
+			if got := deploy.Expand(rules, served); !reflect.DeepEqual(got, want) {
+				t.Errorf("Expand(%s) = %v, want %v\nrules: %v", f.Path, got, want, rules)
 			}
 			seen := map[string]string{}
 			for _, r := range rules {
@@ -467,13 +474,14 @@ func TestASectionIndexKeepsItsOwnHeaders(t *testing.T) {
 }
 
 // TestPerPathHeadersNeverGoInAWildcard: Content-Type, Content-Disposition and
-// Content-Language describe one file. "/*" and "/dir/*" also reach the files
+// Content-Language describe one file. (The types here are not the ones the
+// extensions imply, which would be left out altogether.) "/*" and "/dir/*" also reach the files
 // other plugins write into the output — share cards, a search index — so these
 // stay at each file's own path even when every captured file shares them.
 func TestPerPathHeadersNeverGoInAWildcard(t *testing.T) {
 	files := []collage.BuiltFile{
-		ok("/", "Content-Type", html, "Content-Language", "en", "Content-Disposition", "inline", "X-Content-Type-Options", nosniff),
-		ok("/about/", "Content-Type", html, "Content-Language", "en", "Content-Disposition", "inline", "X-Content-Type-Options", nosniff),
+		ok("/", "Content-Type", "text/html", "Content-Language", "en", "Content-Disposition", "inline", "X-Content-Type-Options", nosniff),
+		ok("/about/", "Content-Type", "text/html", "Content-Language", "en", "Content-Disposition", "inline", "X-Content-Type-Options", nosniff),
 		ok("/static/a.css", "Content-Type", "text/css", "Content-Language", "en", "Content-Disposition", "inline", "X-Content-Type-Options", nosniff, "Cache-Control", immutable),
 		ok("/static/b.css", "Content-Type", "text/css", "Content-Language", "en", "Content-Disposition", "inline", "X-Content-Type-Options", nosniff, "Cache-Control", immutable),
 	}
@@ -518,4 +526,58 @@ func TestAFailedCaptureBlocksWildcards(t *testing.T) {
 	if find(deploy.Compact("", files), "/*") == nil {
 		t.Errorf("a file the build made itself blocks /*")
 	}
+}
+
+// TestImpliedByExtension: a captured Content-Type equal to what the file's
+// extension gives — Go's mime table, which is what collage serves — compared
+// without regard to case or spaces around ";", is the host's to supply.
+func TestImpliedByExtension(t *testing.T) {
+	out := filepath.Join(string(filepath.Separator), "out")
+	for _, tc := range []struct {
+		f    collage.BuiltFile
+		want bool
+	}{
+		{page(out, "/about", "Content-Type", "text/html; charset=utf-8"), true},
+		{page(out, "/about", "Content-Type", "TEXT/HTML ;Charset=UTF-8"), true},
+		{page(out, "/about", "Content-Type", "text/html"), false},
+		{ok("/blog/", "Content-Type", "text/html; charset=utf-8"), true},
+		{ok("/static/a.css", "Content-Type", "text/css; charset=utf-8"), true},
+		{ok("/logo.png", "Content-Type", "image/png"), true},
+		{ok("/feed.xml", "Content-Type", "application/rss+xml"), false},
+		{ok("/feed.xml", "Content-Type", "application/xml"), true},
+		{ok("/about", "Content-Type", "text/html; charset=utf-8"), false},
+		{ok("/LICENSE", "Content-Type", "text/plain; charset=utf-8"), false},
+		{ok("/a.css"), false},
+	} {
+		if got := deploy.ImpliedByExtension(out, tc.f); got != tc.want {
+			t.Errorf("ImpliedByExtension(%s %q) = %v, want %v", tc.f.Path, tc.f.Headers.Get("Content-Type"), got, tc.want)
+		}
+	}
+}
+
+// TestAnImpliedContentTypeIsLeftOut: a host types a file by its extension, so
+// a Content-Type that says the same is no rule at all; one that differs, or a
+// file with no extension, keeps its own.
+func TestAnImpliedContentTypeIsLeftOut(t *testing.T) {
+	files := []collage.BuiltFile{
+		ok("/", "Content-Type", html, "X-Content-Type-Options", nosniff),
+		ok("/static/a.css", "Content-Type", "text/css; charset=utf-8", "X-Content-Type-Options", nosniff),
+		ok("/feed.xml", "Content-Type", "application/rss+xml", "X-Content-Type-Options", nosniff),
+		ok("/LICENSE", "Content-Type", "text/plain; charset=utf-8", "X-Content-Type-Options", nosniff),
+	}
+	rules := deploy.Compact("", files)
+	for _, r := range rules {
+		if ct := r.Headers.Get("Content-Type"); ct != "" && r.Path != "/feed.xml" && r.Path != "/LICENSE" {
+			t.Errorf("rule %s carries Content-Type %q, which the extension implies", r.Path, ct)
+		}
+	}
+	for _, p := range []string{"/feed.xml", "/LICENSE"} {
+		if r := find(rules, p); r == nil || r.Headers.Get("Content-Type") == "" {
+			t.Errorf("rule for %s = %v, want its own Content-Type", p, r)
+		}
+	}
+	if len(rules) != 3 {
+		t.Errorf("rules = %v, want /*, /feed.xml and /LICENSE", rules)
+	}
+	assertExact(t, files)
 }

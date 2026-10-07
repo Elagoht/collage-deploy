@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"log/slog"
+	"net/http"
 	"os"
 	"path/filepath"
 	"slices"
@@ -66,6 +67,18 @@ func e2eSiteIn(t *testing.T, target, out string) *collage.BuildReport {
 		if err := app.RegisterPage(p); err != nil {
 			t.Fatal(err)
 		}
+	}
+	// A header of the about page's own, so it has a rule at its own path.
+	err = app.Use(func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if strings.HasPrefix(r.URL.Path, "/about") {
+				w.Header().Set("X-Robots-Tag", "noindex")
+			}
+			next.ServeHTTP(w, r)
+		})
+	})
+	if err != nil {
+		t.Fatal(err)
 	}
 	feed := collage.NewDocument("feed", "application/rss+xml; charset=utf-8").
 		AtRoot("/feed.xml").WithBody([]byte(`<rss version="2.0"></rss>`)).Build()
@@ -177,8 +190,11 @@ func TestEndToEnd_NetlifyAndCloudflare(t *testing.T) {
 			)
 			assertLines(t, "_headers", headers, "  Strict-Transport-Security: max-age=63072000")
 			assertLines(t, "_headers /about/ block", headerBlock(headers, "/about/"),
-				"  Content-Type: text/html; charset=utf-8",
+				"  X-Robots-Tag: noindex",
 			)
+			if strings.Contains(headers, "  Content-Type: text/html") || strings.Contains(headers, "  Content-Type: text/css") {
+				t.Errorf("_headers carries a Content-Type the extension implies:\n%s", headers)
+			}
 			if block := headerBlock(headers, "/about"); block != "" {
 				t.Errorf("_headers has a block at /about, which the host never serves the page at:\n%s", block)
 			}
@@ -230,7 +246,7 @@ func TestEndToEnd_Vercel(t *testing.T) {
 			feedType = slices.Contains(rule.Headers, vercelHeader{"Content-Type", "application/rss+xml; charset=utf-8"})
 		}
 		if rule.Source == "/about" || rule.Source == "/about/" {
-			aboutType[rule.Source] = slices.Contains(rule.Headers, vercelHeader{"Content-Type", "text/html; charset=utf-8"})
+			aboutType[rule.Source] = slices.Contains(rule.Headers, vercelHeader{"X-Robots-Tag", "noindex"})
 		}
 	}
 	if !feedType {

@@ -34,10 +34,6 @@
           "value": "default-src 'self'"
         },
         {
-          "key": "Content-Type",
-          "value": "text/html; charset=utf-8"
-        },
-        {
           "key": "X-Frame-Options",
           "value": "DENY"
         }
@@ -53,10 +49,6 @@
         {
           "key": "Content-Security-Policy",
           "value": "default-src 'self'"
-        },
-        {
-          "key": "Content-Type",
-          "value": "text/html; charset=utf-8"
         },
         {
           "key": "X-Frame-Options",
@@ -76,10 +68,6 @@
           "value": "default-src 'self'"
         },
         {
-          "key": "Content-Type",
-          "value": "text/html; charset=utf-8"
-        },
-        {
           "key": "X-Frame-Options",
           "value": "SAMEORIGIN"
         }
@@ -97,10 +85,6 @@
           "value": "default-src 'self'"
         },
         {
-          "key": "Content-Type",
-          "value": "text/html; charset=utf-8"
-        },
-        {
           "key": "X-Frame-Options",
           "value": "DENY"
         }
@@ -116,10 +100,6 @@
         {
           "key": "Content-Security-Policy",
           "value": "default-src 'self'"
-        },
-        {
-          "key": "Content-Type",
-          "value": "text/html; charset=utf-8"
         },
         {
           "key": "X-Frame-Options",
@@ -141,24 +121,6 @@
         {
           "key": "Link",
           "value": "</>; rel=alternate, </feed.xml>; rel=self"
-        }
-      ]
-    },
-    {
-      "source": "/static/app.3f2a9c.css",
-      "headers": [
-        {
-          "key": "Content-Type",
-          "value": "text/css; charset=utf-8"
-        }
-      ]
-    },
-    {
-      "source": "/static/print.77d01b.css",
-      "headers": [
-        {
-          "key": "Content-Type",
-          "value": "text/css; charset=utf-8"
         }
       ]
     }

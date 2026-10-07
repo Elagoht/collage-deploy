@@ -1,6 +1,7 @@
 package deploy
 
 import (
+	"mime"
 	"net/http"
 	"net/textproto"
 	"path/filepath"
@@ -56,6 +57,43 @@ var perPath = []string{"Content-Type", "Content-Disposition", "Content-Language"
 // wildcardable reports whether a header may go in a "/*" or "/dir/*" rule.
 func wildcardable(name string) bool { return !slices.Contains(perPath, name) }
 
+// ImpliedByExtension reports whether f's captured Content-Type is the one its
+// extension implies — Go's mime.TypeByExtension, which is what collage serves a
+// file with, "text/html; charset=utf-8" for .html — compared without regard to
+// case or to spaces around ";". A host types a file by its extension, so such a
+// Content-Type needs no rule. The extension is the written file's, or, with no
+// File, its served path's, a directory standing for its index.html. A file
+// with no extension, or with no Content-Type, implies nothing.
+func ImpliedByExtension(outDir string, f collage.BuiltFile) bool {
+	captured := f.Headers.Values("Content-Type")
+	if len(captured) != 1 {
+		return false
+	}
+	name := f.File
+	if name == "" || outDir == "" {
+		name = ServedPath(f.Path)
+		if strings.HasSuffix(name, "/") {
+			name += "index.html"
+		}
+	}
+	ext := filepath.Ext(name)
+	if ext == "" {
+		return false
+	}
+	implied := mime.TypeByExtension(ext)
+	return implied != "" && mediaType(captured[0]) == mediaType(implied)
+}
+
+// mediaType is a Content-Type in one spelling: lower case, no space around
+// ";".
+func mediaType(v string) string {
+	parts := strings.Split(strings.ToLower(v), ";")
+	for i := range parts {
+		parts[i] = strings.TrimSpace(parts[i])
+	}
+	return strings.Join(parts, ";")
+}
+
 // entry is one built file as compaction sees it.
 type entry struct {
 	path string
@@ -75,6 +113,7 @@ func entries(outDir string, files []collage.BuiltFile) []entry {
 	out := make([]entry, 0, len(files))
 	for _, f := range files {
 		e := entry{path: ServedAt(outDir, f), headers: http.Header{}}
+		implied := ImpliedByExtension(outDir, f)
 		switch {
 		case f.Status >= 200 && f.Status <= 299 && f.Headers != nil:
 			e.captured = true
@@ -88,6 +127,9 @@ func entries(outDir string, files []collage.BuiltFile) []entry {
 					continue
 				}
 				key := textproto.CanonicalMIMEHeaderKey(name)
+				if implied && key == "Content-Type" {
+					continue
+				}
 				e.headers[key] = append(e.headers[key], f.Headers[name]...)
 			}
 		case f.Status < 200 || f.Status > 299:
@@ -271,7 +313,9 @@ func Compact(outDir string, files []collage.BuiltFile) []HeaderRule {
 
 // Expand returns the headers a host applies to path under rules: every rule that
 // matches, in order, a later rule replacing the values of a header an earlier one
-// set. path is a served path, as ServedAt spells it.
+// set. path is a served path, as ServedAt spells it. A Content-Type the rules
+// leave out because the file's extension implies it (ImpliedByExtension) is the
+// host's to supply, and is not in the result.
 func Expand(rules []HeaderRule, path string) http.Header {
 	out := http.Header{}
 	for _, r := range rules {

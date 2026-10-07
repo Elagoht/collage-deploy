@@ -144,7 +144,17 @@ carries no headers of its own, but a host cannot tell it from the rest, so the
 plugins write into the output in their own build hook — share-card images, a
 search index, compressed siblings — so `Content-Type`, `Content-Disposition` and
 `Content-Language` never go into `/*` or a `/dir/*` rule: they stay at each file's
-own path, and a host types every other file by its extension as usual. A `/dir/*`
+own path, and a host types every other file by its extension as usual.
+
+A captured `Content-Type` that is what the file's extension implies — Go's
+`mime.TypeByExtension`, which is what collage serves files with
+(`text/html; charset=utf-8` for a page's `index.html`, `text/css; charset=utf-8`
+for a stylesheet), compared without regard to case or spaces around `;` — is left
+out of the rules altogether: the host supplies it from the extension, and a rule
+per file for it would only use up a host's rule budget. A `Content-Type` that
+differs (`/feed.xml` answered `application/rss+xml`), or one on a file with no
+extension, keeps its own rule. `Expand` models the rules alone, so it gives such a
+file every header it was answered with but the implied `Content-Type`. A `/dir/*`
 rule is written only when every file under the directory is a captured 2xx file
 sharing the headers, so it never reaches such a file. A file that was asked for
 and answered otherwise than 2xx (a redirect, an error), or whose capture failed or

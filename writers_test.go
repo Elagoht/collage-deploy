@@ -822,3 +822,31 @@ func TestAnUnreadableManifestIsAnError(t *testing.T) {
 		t.Errorf("wrote %v", slices.Sorted(maps.Keys(got)))
 	}
 }
+
+// TestCloudflareFitsAnAssetHeavySiteUnderItsRuleCap: 80 stylesheets and 30
+// pages, each answered with the Content-Type its extension implies, compact to
+// a handful of rules: no rule per file for a type the host supplies anyway.
+func TestCloudflareFitsAnAssetHeavySiteUnderItsRuleCap(t *testing.T) {
+	dir := t.TempDir()
+	ev := &collage.BuildFinishedEvent{OutDir: dir}
+	for i := range 80 {
+		ev.Files = append(ev.Files, ok(fmt.Sprintf("/static/a%02d.css", i),
+			"Content-Type", "text/css; charset=utf-8", "Cache-Control", immutable, "X-Content-Type-Options", nosniff))
+	}
+	for i := range 30 {
+		ev.Files = append(ev.Files, ok(fmt.Sprintf("/p%02d/", i),
+			"Content-Type", html, "X-Frame-Options", fmt.Sprint(i%2), "Cache-Control", noCache, "X-Content-Type-Options", nosniff))
+	}
+	run(t, "cloudflare", ev)
+	noErrors(t, ev)
+	if f := findings(ev, "deploy-limit"); len(f) != 0 {
+		t.Errorf("deploy-limit = %+v", f)
+	}
+	headers := read(t, dir, "_headers")
+	if blocks := strings.Count(headers, "\n\n") + 1; blocks >= 100 {
+		t.Errorf("%d header rules", blocks)
+	}
+	if strings.Contains(headers, "  Content-Type:") {
+		t.Errorf("_headers carries a Content-Type the extensions imply:\n%s", headers)
+	}
+}

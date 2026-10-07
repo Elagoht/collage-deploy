@@ -8,19 +8,16 @@
 /
   Cache-Control: no-cache
   Content-Security-Policy: default-src 'self'
-  Content-Type: text/html; charset=utf-8
   X-Frame-Options: DENY
 
 /about/
   Cache-Control: no-cache
   Content-Security-Policy: default-src 'self'
-  Content-Type: text/html; charset=utf-8
   X-Frame-Options: SAMEORIGIN
 
 /blog/
   Cache-Control: no-cache
   Content-Security-Policy: default-src 'self'
-  Content-Type: text/html; charset=utf-8
   X-Frame-Options: DENY
 
 /feed.xml
@@ -28,9 +25,3 @@
   Content-Type: application/rss+xml
   Link: </>; rel=alternate
   Link: </feed.xml>; rel=self
-
-/static/app.3f2a9c.css
-  Content-Type: text/css; charset=utf-8
-
-/static/print.77d01b.css
-  Content-Type: text/css; charset=utf-8
