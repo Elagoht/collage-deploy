@@ -26,6 +26,13 @@ import (
 // spelling, and served from about/index.html at "/about/".
 func e2eSite(t *testing.T, target string) (string, *collage.BuildReport) {
 	t.Helper()
+	out := t.TempDir()
+	return out, e2eSiteIn(t, target, out)
+}
+
+// e2eSiteIn builds e2eSite's site for target into out.
+func e2eSiteIn(t *testing.T, target, out string) *collage.BuildReport {
+	t.Helper()
 	templates := fstest.MapFS{
 		"t/home.html":  {Data: []byte(`<html><body><h1>Home</h1><script nonce="{{cspNonce}}">1</script></body></html>`)},
 		"t/about.html": {Data: []byte(`<html><body><h1>About</h1></body></html>`)},
@@ -71,7 +78,6 @@ func e2eSite(t *testing.T, target string) (string, *collage.BuildReport) {
 		t.Fatal(err)
 	}
 
-	out := t.TempDir()
 	builder, err := collage.NewBuilder(app, collage.BuildOptions{OutDir: out})
 	if err != nil {
 		t.Fatal(err)
@@ -80,7 +86,26 @@ func e2eSite(t *testing.T, target string) (string, *collage.BuildReport) {
 	if err != nil {
 		t.Fatalf("%s: Build: %v", target, err)
 	}
-	return out, report
+	return report
+}
+
+// TestEndToEnd_ExportTwiceIntoOneDirectory: collage export does not clean its
+// output by default; a second build into the same directory, for every target,
+// succeeds and writes what the first did.
+func TestEndToEnd_ExportTwiceIntoOneDirectory(t *testing.T) {
+	for _, target := range deploy.Targets {
+		t.Run(target, func(t *testing.T) {
+			out, _ := e2eSite(t, target)
+			first := tree(t, out)
+			e2eSiteIn(t, target, out)
+			got := tree(t, out)
+			for _, name := range []string{"_headers", "_redirects", "vercel.json", "about-us/index.html", deploy.ManifestFile} {
+				if data, ok := first[name]; ok && !bytes.Equal(got[name], data) {
+					t.Errorf("%s differs after the second build:\n%s", name, got[name])
+				}
+			}
+		})
+	}
 }
 
 func read(t *testing.T, out, name string) string {
