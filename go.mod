@@ -9,8 +9,14 @@ module github.com/Elagoht/collage-deploy
 
 go 1.26
 
-require github.com/Elagoht/collage v0.51.2
+require (
+	github.com/Elagoht/collage v0.51.2
+	github.com/Elagoht/collage-redirects v0.1.6
+	github.com/Elagoht/collage-secure v0.2.3
+)
 
 // Until collage v0.52.0 is tagged, the build hook's redirects and headers come
 // from the unreleased deploy worktree.
 replace github.com/Elagoht/collage => ../collage-deploy-core
+
+replace github.com/Elagoht/collage-redirects => ../collage-redirects
