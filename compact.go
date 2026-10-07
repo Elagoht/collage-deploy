@@ -1,7 +1,6 @@
 package deploy
 
 import (
-	"mime"
 	"net/http"
 	"net/textproto"
 	"path/filepath"
@@ -58,9 +57,11 @@ var perPath = []string{"Content-Type", "Content-Disposition", "Content-Language"
 func wildcardable(name string) bool { return !slices.Contains(perPath, name) }
 
 // ImpliedByExtension reports whether f's captured Content-Type is the one its
-// extension implies — Go's mime.TypeByExtension, which is what collage serves a
-// file with, "text/html; charset=utf-8" for .html — compared without regard to
-// case or to spaces around ";". A host types a file by its extension, so such a
+// extension implies in extensionTypes — Go's builtin mime table, which is what
+// collage serves a file with where the machine adds nothing of its own,
+// "text/html; charset=utf-8" for .html — compared without regard to case or to
+// spaces around ";". The machine's own table is never consulted, so the rules
+// are the same on every machine. A host types a file by its extension, so such a
 // Content-Type needs no rule. The extension is the written file's, or, with no
 // File, its served path's, a directory standing for its index.html. A file
 // with no extension, or with no Content-Type, implies nothing.
@@ -80,8 +81,80 @@ func ImpliedByExtension(outDir string, f collage.BuiltFile) bool {
 	if ext == "" {
 		return false
 	}
-	implied := mime.TypeByExtension(ext)
+	implied := extensionTypes[strings.ToLower(ext)]
 	return implied != "" && mediaType(captured[0]) == mediaType(implied)
+}
+
+// extensionTypes is a copy of Go's builtin mime table, builtinTypesLower in
+// mime/type.go (Go 1.26). mime.TypeByExtension starts from it but lets the
+// machine's own tables (/etc/mime.types, freedesktop globs2) override it — .xml
+// is application/xml on one machine and text/xml on another — so the plugin
+// keeps its own copy.
+var extensionTypes = map[string]string{
+	".ai":    "application/postscript",
+	".apk":   "application/vnd.android.package-archive",
+	".apng":  "image/apng",
+	".avif":  "image/avif",
+	".bin":   "application/octet-stream",
+	".bmp":   "image/bmp",
+	".com":   "application/octet-stream",
+	".css":   "text/css; charset=utf-8",
+	".csv":   "text/csv; charset=utf-8",
+	".doc":   "application/msword",
+	".docx":  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+	".ehtml": "text/html; charset=utf-8",
+	".eml":   "message/rfc822",
+	".eps":   "application/postscript",
+	".exe":   "application/octet-stream",
+	".flac":  "audio/flac",
+	".gif":   "image/gif",
+	".gz":    "application/gzip",
+	".htm":   "text/html; charset=utf-8",
+	".html":  "text/html; charset=utf-8",
+	".ico":   "image/vnd.microsoft.icon",
+	".ics":   "text/calendar; charset=utf-8",
+	".jfif":  "image/jpeg",
+	".jpeg":  "image/jpeg",
+	".jpg":   "image/jpeg",
+	".js":    "text/javascript; charset=utf-8",
+	".json":  "application/json",
+	".m4a":   "audio/mp4",
+	".mjs":   "text/javascript; charset=utf-8",
+	".mp3":   "audio/mpeg",
+	".mp4":   "video/mp4",
+	".oga":   "audio/ogg",
+	".ogg":   "audio/ogg",
+	".ogv":   "video/ogg",
+	".opus":  "audio/ogg",
+	".pdf":   "application/pdf",
+	".pjp":   "image/jpeg",
+	".pjpeg": "image/jpeg",
+	".png":   "image/png",
+	".ppt":   "application/vnd.ms-powerpoint",
+	".pptx":  "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+	".ps":    "application/postscript",
+	".rdf":   "application/rdf+xml",
+	".rtf":   "application/rtf",
+	".shtml": "text/html; charset=utf-8",
+	".svg":   "image/svg+xml",
+	".text":  "text/plain; charset=utf-8",
+	".tif":   "image/tiff",
+	".tiff":  "image/tiff",
+	".txt":   "text/plain; charset=utf-8",
+	".vtt":   "text/vtt; charset=utf-8",
+	".wasm":  "application/wasm",
+	".wav":   "audio/wav",
+	".webm":  "audio/webm",
+	".webp":  "image/webp",
+	".xbl":   "text/xml; charset=utf-8",
+	".xbm":   "image/x-xbitmap",
+	".xht":   "application/xhtml+xml",
+	".xhtml": "application/xhtml+xml",
+	".xls":   "application/vnd.ms-excel",
+	".xlsx":  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+	".xml":   "text/xml; charset=utf-8",
+	".xsl":   "text/xml; charset=utf-8",
+	".zip":   "application/zip",
 }
 
 // mediaType is a Content-Type in one spelling: lower case, no space around

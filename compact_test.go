@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"math/rand"
 	"net/http"
+	"path"
 	"path/filepath"
 	"reflect"
 	"slices"
@@ -75,15 +76,20 @@ func assertExactIn(t *testing.T, out string, files []collage.BuiltFile) {
 		served := deploy.ServedAt(out, f)
 		switch {
 		case isCaptured(f):
-			// A Content-Type the extension implies is the host's to supply:
-			// the rules leave it out.
-			want := f.Headers
-			if deploy.ImpliedByExtension(out, f) {
-				want = f.Headers.Clone()
-				want.Del("Content-Type")
+			// The host serves what the rules give plus, when they give no
+			// Content-Type, the one the extension implies; a Content-Type the
+			// extension implies is the host's to supply and in no rule.
+			got := deploy.Expand(rules, served)
+			host := hostType(served)
+			want := f.Headers.Values("Content-Type")
+			if len(want) == 1 && host != "" && mediaType(want[0]) == mediaType(host) && got.Get("Content-Type") != "" {
+				t.Errorf("%s: the rules carry Content-Type %q, which the extension implies", f.Path, got.Get("Content-Type"))
 			}
-			if got := deploy.Expand(rules, served); !reflect.DeepEqual(got, want) {
-				t.Errorf("Expand(%s) = %v, want %v\nrules: %v", f.Path, got, want, rules)
+			if got.Get("Content-Type") == "" && len(want) > 0 && host != "" {
+				got.Set("Content-Type", host)
+			}
+			if !reflect.DeepEqual(normalType(got), normalType(f.Headers)) {
+				t.Errorf("the host serves %s with %v, want %v\nrules: %v", f.Path, got, f.Headers, rules)
 			}
 			seen := map[string]string{}
 			for _, r := range rules {
@@ -367,7 +373,13 @@ func TestExpandReproducesEveryFileProperty(t *testing.T) {
 	dirs := []string{"/", "/a/", "/a/b/", "/c/", "/c/d/e/"}
 	names := []string{"A", "B", "C", "Cache-Control", "Content-Type"}
 	vals := []string{"1", "2"}
-	withWildcard := 0
+	withWildcard, implied := 0, 0
+	exts := []string{"", ".css", ".xml", ".png", ".js", ".bin"}
+	spellings := []func(string) string{
+		func(s string) string { return s },
+		strings.ToUpper,
+		func(s string) string { return strings.ReplaceAll(s, "; ", " ; ") },
+	}
 	for trial := range 300 {
 		shared := map[string]http.Header{}
 		for _, d := range dirs {
@@ -386,6 +398,8 @@ func TestExpandReproducesEveryFileProperty(t *testing.T) {
 			p := d + string(rune('a'+i))
 			if rng.Intn(4) == 0 {
 				p += "/"
+			} else {
+				p += exts[rng.Intn(len(exts))]
 			}
 			if seen[p] {
 				continue
@@ -394,6 +408,17 @@ func TestExpandReproducesEveryFileProperty(t *testing.T) {
 			h := shared[d].Clone()
 			if rng.Intn(12) == 0 {
 				h.Add(names[rng.Intn(len(names))], "stray")
+			}
+			// The type the extension implies, spelled as a handler might, or
+			// another one.
+			switch host := hostType(deploy.ServedPath(p)); rng.Intn(3) {
+			case 0:
+				if host != "" {
+					h.Set("Content-Type", spellings[rng.Intn(len(spellings))](host))
+					implied++
+				}
+			case 1:
+				h.Set("Content-Type", "application/x-other")
 			}
 			status := 200
 			switch rng.Intn(14) {
@@ -414,6 +439,9 @@ func TestExpandReproducesEveryFileProperty(t *testing.T) {
 			}
 		}
 		t.Run(fmt.Sprintf("site-%03d", trial), func(t *testing.T) { assertExact(t, files) })
+	}
+	if implied < 300 {
+		t.Errorf("only %d files had the Content-Type their extension implies; the property is not exercising it", implied)
 	}
 	if withWildcard < 50 {
 		t.Errorf("only %d of 300 sites produced a directory wildcard; the property is not exercising them", withWildcard)
@@ -528,9 +556,52 @@ func TestAFailedCaptureBlocksWildcards(t *testing.T) {
 	}
 }
 
+// hostTypes is what a host types a file with by its extension, written out
+// here rather than read from the plugin: Go's builtin mime table, for the
+// extensions the tests use.
+var hostTypes = map[string]string{
+	".html": "text/html; charset=utf-8",
+	".css":  "text/css; charset=utf-8",
+	".js":   "text/javascript; charset=utf-8",
+	".xml":  "text/xml; charset=utf-8",
+	".png":  "image/png",
+	".ico":  "image/vnd.microsoft.icon",
+}
+
+// hostType is the type hostTypes gives a served path, a directory standing for
+// its index.html; "" for none.
+func hostType(served string) string {
+	if strings.HasSuffix(served, "/") {
+		return hostTypes[".html"]
+	}
+	return hostTypes[path.Ext(served)]
+}
+
+// mediaType is a Content-Type in one spelling, for comparing two.
+func mediaType(v string) string {
+	parts := strings.Split(strings.ToLower(v), ";")
+	for i := range parts {
+		parts[i] = strings.TrimSpace(parts[i])
+	}
+	return strings.Join(parts, ";")
+}
+
+// normalType is a copy of h with its Content-Type in one spelling.
+func normalType(h http.Header) http.Header {
+	out := h.Clone()
+	if out == nil {
+		out = http.Header{}
+	}
+	for i, v := range out["Content-Type"] {
+		out["Content-Type"][i] = mediaType(v)
+	}
+	return out
+}
+
 // TestImpliedByExtension: a captured Content-Type equal to what the file's
-// extension gives — Go's mime table, which is what collage serves — compared
-// without regard to case or spaces around ";", is the host's to supply.
+// extension gives in the plugin's own table — Go's builtin one, never the
+// machine's — compared without regard to case or spaces around ";", is the
+// host's to supply.
 func TestImpliedByExtension(t *testing.T) {
 	out := filepath.Join(string(filepath.Separator), "out")
 	for _, tc := range []struct {
@@ -544,7 +615,12 @@ func TestImpliedByExtension(t *testing.T) {
 		{ok("/static/a.css", "Content-Type", "text/css; charset=utf-8"), true},
 		{ok("/logo.png", "Content-Type", "image/png"), true},
 		{ok("/feed.xml", "Content-Type", "application/rss+xml"), false},
-		{ok("/feed.xml", "Content-Type", "application/xml"), true},
+		// Go's builtin table, whatever the machine's says.
+		{ok("/feed.xml", "Content-Type", "text/xml; charset=utf-8"), true},
+		{ok("/feed.xml", "Content-Type", "application/xml"), false},
+		{ok("/favicon.ico", "Content-Type", "image/vnd.microsoft.icon"), true},
+		{ok("/favicon.ico", "Content-Type", "image/x-icon"), false},
+		{ok("/font.woff2", "Content-Type", "font/woff2"), false},
 		{ok("/about", "Content-Type", "text/html; charset=utf-8"), false},
 		{ok("/LICENSE", "Content-Type", "text/plain; charset=utf-8"), false},
 		{ok("/a.css"), false},
