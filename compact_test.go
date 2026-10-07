@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"math/rand"
 	"net/http"
+	"path/filepath"
 	"reflect"
 	"slices"
 	"strings"
@@ -49,13 +50,29 @@ func isCaptured(f collage.BuiltFile) bool {
 // but the "/*" headers.
 func assertExact(t *testing.T, files []collage.BuiltFile) {
 	t.Helper()
-	rules := deploy.Compact(files)
+	assertExactIn(t, "", files)
+}
+
+// assertExactIn is assertExact for files written under out, whose served paths
+// come from their File.
+func assertExactIn(t *testing.T, out string, files []collage.BuiltFile) {
+	t.Helper()
+	rules := deploy.Compact(out, files)
 	root := http.Header{}
 	if r := find(rules, "/*"); r != nil {
 		root = r.Headers
 	}
+	for _, r := range rules {
+		if r.Path == "/*" || strings.HasSuffix(r.Path, "*") {
+			for _, name := range []string{"Content-Type", "Content-Disposition", "Content-Language"} {
+				if r.Headers.Get(name) != "" {
+					t.Errorf("wildcard %s carries %s: %v", r.Path, name, r.Headers)
+				}
+			}
+		}
+	}
 	for _, f := range files {
-		served := deploy.ServedPath(f.Path)
+		served := deploy.ServedAt(out, f)
 		switch {
 		case isCaptured(f):
 			if got := deploy.Expand(rules, served); !reflect.DeepEqual(got, f.Headers) {
@@ -76,7 +93,7 @@ func assertExact(t *testing.T, files []collage.BuiltFile) {
 					seen[name] = r.Path
 				}
 			}
-		case f.Status == 0 || f.Headers == nil:
+		case !f.Captured && (f.Status == 0 || f.Headers == nil):
 			if got := deploy.Expand(rules, served); !reflect.DeepEqual(got, root) {
 				t.Errorf("uncaptured %s gets %v, want only the /* headers %v", f.Path, got, root)
 			}
@@ -108,7 +125,7 @@ func TestSharedHeaderGoesToRoot(t *testing.T) {
 		ok("/about/", "X-Content-Type-Options", nosniff, "Content-Type", "text/html"),
 		ok("/feed.xml", "X-Content-Type-Options", nosniff, "Content-Type", "application/xml"),
 	}
-	rules := deploy.Compact(files)
+	rules := deploy.Compact("", files)
 	root := find(rules, "/*")
 	if root == nil || root.Headers.Get("X-Content-Type-Options") != nosniff || len(root.Headers) != 1 {
 		t.Fatalf("root rule = %v", root)
@@ -127,7 +144,7 @@ func TestDirectoryWildcard(t *testing.T) {
 		ok("/static/app.3f9a.css", "X-Content-Type-Options", nosniff, "Cache-Control", immutable),
 		ok("/static/logo.1b2c.png", "X-Content-Type-Options", nosniff, "Cache-Control", immutable),
 	}
-	rules := deploy.Compact(files)
+	rules := deploy.Compact("", files)
 	if len(rules) != 2 || rules[0].Path != "/*" || rules[1].Path != "/static/*" {
 		t.Fatalf("rules = %v", rules)
 	}
@@ -139,7 +156,7 @@ func TestFileWithOwnHeadersGetsOwnRule(t *testing.T) {
 		ok("/", "X-Content-Type-Options", nosniff),
 		ok("/feed.xml", "X-Content-Type-Options", nosniff, "Content-Type", "application/atom+xml"),
 	}
-	rules := deploy.Compact(files)
+	rules := deploy.Compact("", files)
 	r := find(rules, "/feed.xml")
 	if r == nil || r.Headers.Get("Content-Type") != "application/atom+xml" {
 		t.Fatalf("rules = %v", rules)
@@ -154,7 +171,7 @@ func TestDifferingDirectoryGetsNoWildcard(t *testing.T) {
 		ok("/static/b.css", "X-Content-Type-Options", nosniff, "Cache-Control", immutable),
 		ok("/static/c.txt", "X-Content-Type-Options", nosniff, "Cache-Control", "no-cache"),
 	}
-	rules := deploy.Compact(files)
+	rules := deploy.Compact("", files)
 	if find(rules, "/static/*") != nil {
 		t.Fatalf("wildcard emitted for a differing directory: %v", rules)
 	}
@@ -185,7 +202,7 @@ func TestIndexPageUnderItsOwnDirectory(t *testing.T) {
 		ok("/blog/", "A", "1", "B", "2"),
 		ok("/blog/post/", "A", "1", "B", "2"),
 	}
-	rules := deploy.Compact(files)
+	rules := deploy.Compact("", files)
 	if find(rules, "/blog/*") == nil {
 		t.Fatalf("rules = %v", rules)
 	}
@@ -200,7 +217,7 @@ func TestUncapturedFilesGetOnlyRootHeaders(t *testing.T) {
 		file("/nilheaders", 200, nil),
 		file("/404.html", 0, nil),
 	}
-	rules := deploy.Compact(files)
+	rules := deploy.Compact("", files)
 	if root := find(rules, "/*"); root == nil || root.Headers.Get("A") != "1" {
 		t.Fatalf("rules = %v", rules)
 	}
@@ -216,7 +233,7 @@ func TestCapturedNon2xxBlocksRoot(t *testing.T) {
 		ok("/b", "A", "1"),
 		file("/old", 301, http.Header{"Location": {"/new"}}),
 	}
-	rules := deploy.Compact(files)
+	rules := deploy.Compact("", files)
 	if find(rules, "/*") != nil {
 		t.Fatalf("/* emitted beside a captured redirect: %v", rules)
 	}
@@ -235,7 +252,7 @@ func TestUncapturedFileBlocksDirectoryWildcard(t *testing.T) {
 		ok("/static/b.css", "Cache-Control", immutable),
 		file("/static/raw.bin", 0, nil),
 	}
-	if r := find(deploy.Compact(files), "/static/*"); r != nil {
+	if r := find(deploy.Compact("", files), "/static/*"); r != nil {
 		t.Fatalf("wildcard reaches an uncaptured file: %v", r)
 	}
 	assertExact(t, files)
@@ -247,24 +264,24 @@ func TestNon2xxFileBlocksDirectoryWildcard(t *testing.T) {
 		ok("/docs/b", "A", "1"),
 		file("/docs/gone", 404, http.Header{"A": {"1"}}),
 	}
-	if r := find(deploy.Compact(files), "/docs/*"); r != nil {
+	if r := find(deploy.Compact("", files), "/docs/*"); r != nil {
 		t.Fatalf("wildcard reaches a 404: %v", r)
 	}
 	assertExact(t, files)
 }
 
 func TestNothingCapturedGivesNoRules(t *testing.T) {
-	if deploy.Compact(nil) != nil {
+	if deploy.Compact("", nil) != nil {
 		t.Error("nil")
 	}
-	if got := deploy.Compact([]collage.BuiltFile{file("/a", 0, nil), file("/b", 404, http.Header{"A": {"1"}})}); got != nil {
+	if got := deploy.Compact("", []collage.BuiltFile{file("/a", 0, nil), file("/b", 404, http.Header{"A": {"1"}})}); got != nil {
 		t.Errorf("rules = %v", got)
 	}
 }
 
 func TestLoneFileGoesToRoot(t *testing.T) {
 	files := []collage.BuiltFile{ok("/only", "A", "1"), file("/404.html", 0, nil)}
-	rules := deploy.Compact(files)
+	rules := deploy.Compact("", files)
 	if len(rules) != 1 || rules[0].Path != "/*" {
 		t.Fatalf("rules = %v", rules)
 	}
@@ -273,9 +290,9 @@ func TestLoneFileGoesToRoot(t *testing.T) {
 
 func TestTwoSpellingsOfOneHeaderMergeDeterministically(t *testing.T) {
 	a := file("/x", 200, http.Header{"x-a": {"1"}, "X-A": {"2"}})
-	want := deploy.Compact([]collage.BuiltFile{a})
+	want := deploy.Compact("", []collage.BuiltFile{a})
 	for range 30 {
-		if got := deploy.Compact([]collage.BuiltFile{a}); !reflect.DeepEqual(got, want) {
+		if got := deploy.Compact("", []collage.BuiltFile{a}); !reflect.DeepEqual(got, want) {
 			t.Fatalf("merge order varies: %v vs %v", got, want)
 		}
 	}
@@ -302,12 +319,12 @@ func TestDeterministicUnderShuffle(t *testing.T) {
 		ok("/static/img/c.png", "X-Content-Type-Options", nosniff, "Cache-Control", immutable),
 		ok("/feed.xml", "X-Content-Type-Options", nosniff, "Content-Type", "application/xml"),
 	}
-	want := deploy.Compact(files)
+	want := deploy.Compact("", files)
 	rng := rand.New(rand.NewSource(1))
 	for range 20 {
 		shuffled := slices.Clone(files)
 		rng.Shuffle(len(shuffled), func(i, j int) { shuffled[i], shuffled[j] = shuffled[j], shuffled[i] })
-		if got := deploy.Compact(shuffled); !reflect.DeepEqual(got, want) {
+		if got := deploy.Compact("", shuffled); !reflect.DeepEqual(got, want) {
 			t.Fatalf("order changed the rules:\n got %v\nwant %v", got, want)
 		}
 	}
@@ -322,7 +339,7 @@ func TestRuleOrder(t *testing.T) {
 		ok("/a", "A", "1", "F", "1"),
 	}
 	var paths []string
-	for _, r := range deploy.Compact(files) {
+	for _, r := range deploy.Compact("", files) {
 		paths = append(paths, r.Path)
 	}
 	if want := []string{"/*", "/static/*", "/a", "/z"}; !slices.Equal(paths, want) {
@@ -378,7 +395,7 @@ func TestExpandReproducesEveryFileProperty(t *testing.T) {
 			}
 			files = append(files, file(p, status, h))
 		}
-		rules := deploy.Compact(files)
+		rules := deploy.Compact("", files)
 		for _, r := range rules {
 			if r.Path != "/*" && strings.HasSuffix(r.Path, "*") {
 				withWildcard++
@@ -390,4 +407,57 @@ func TestExpandReproducesEveryFileProperty(t *testing.T) {
 	if withWildcard < 50 {
 		t.Errorf("only %d of 300 sites produced a directory wildcard; the property is not exercising them", withWildcard)
 	}
+}
+
+// page is a page registered at path, as collage registers one by default — no
+// trailing slash — written to its directory's index.html under out.
+func page(out, path string, kv ...string) collage.BuiltFile {
+	f := ok(path, kv...)
+	f.Kind = "page"
+	f.File = filepath.Join(out, filepath.FromSlash(strings.TrimPrefix(path, "/")), "index.html")
+	return f
+}
+
+// TestServedAt: a file's served path comes from where it was written, so a page
+// registered as "/about" is served at "/about/"; with no File, from its Path.
+func TestServedAt(t *testing.T) {
+	out := filepath.Join(string(filepath.Separator), "out")
+	for _, tc := range []struct {
+		f    collage.BuiltFile
+		want string
+	}{
+		{page(out, "/about"), "/about/"},
+		{page(out, "/"), "/"},
+		{collage.BuiltFile{Path: "/feed.xml", File: filepath.Join(out, "feed.xml")}, "/feed.xml"},
+		{collage.BuiltFile{Path: "/en/404.html", File: filepath.Join(out, "en", "404.html")}, "/en/404.html"},
+		{collage.BuiltFile{Path: "/blog/index.html"}, "/blog/"},
+		{collage.BuiltFile{Path: "/about"}, "/about"},
+	} {
+		if got := deploy.ServedAt(out, tc.f); got != tc.want {
+			t.Errorf("ServedAt(%q, %+v) = %q, want %q", out, tc.f, got, tc.want)
+		}
+	}
+}
+
+// TestASectionIndexKeepsItsOwnHeaders: pages registered without a trailing
+// slash — "/blog" beside "/blog/a" and "/blog/b" — are served at "/blog/",
+// "/blog/a/" and "/blog/b/". A "/blog/*" carrying the posts' headers would
+// reach the section index at "/blog/", so the index's headers have to be
+// judged under the directory too.
+func TestASectionIndexKeepsItsOwnHeaders(t *testing.T) {
+	out := filepath.Join(string(filepath.Separator), "out")
+	files := []collage.BuiltFile{
+		page(out, "/", "X-Section", "index"),
+		page(out, "/blog", "X-Section", "index"),
+		page(out, "/blog/a", "X-Section", "post"),
+		page(out, "/blog/b", "X-Section", "post"),
+	}
+	rules := deploy.Compact(out, files)
+	if got := deploy.Expand(rules, "/blog/").Get("X-Section"); got != "index" {
+		t.Errorf("/blog/ is served X-Section %q, want index\nrules: %v", got, rules)
+	}
+	if find(rules, "/blog") != nil {
+		t.Errorf("a rule is written at /blog, which the host never serves the page at: %v", rules)
+	}
+	assertExactIn(t, out, files)
 }

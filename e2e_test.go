@@ -20,8 +20,10 @@ import (
 
 // e2eSite builds a small site for target into its own directory: two pages, one
 // with a redirect of its own, a feed document, a static mount with a
-// fingerprinted file, collage-secure's headers with a nonce-bearing CSP, and
-// collage-redirects' rules, one of them a prefix.
+// fingerprinted file, collage-secure's headers with a nonce-bearing CSP and,
+// the site being served over HTTPS, HSTS, and collage-redirects' rules, one of
+// them a prefix. The about page is registered as "/about", collage's default
+// spelling, and served from about/index.html at "/about/".
 func e2eSite(t *testing.T, target string) (string, *collage.BuildReport) {
 	t.Helper()
 	templates := fstest.MapFS{
@@ -30,6 +32,7 @@ func e2eSite(t *testing.T, target string) (string, *collage.BuildReport) {
 	}
 	app, err := collage.New(&collage.Config{
 		Server:   collage.ServerConfig{Host: "localhost", Port: 3000},
+		BaseURL:  "https://example.com",
 		Template: collage.TemplateConfig{FS: templates, Root: "t"},
 		Logger:   slog.New(slog.NewTextHandler(new(bytes.Buffer), nil)),
 		Plugins: []collage.Plugin{
@@ -147,6 +150,13 @@ func TestEndToEnd_NetlifyAndCloudflare(t *testing.T) {
 			assertLines(t, "_headers /feed.xml block", headerBlock(headers, "/feed.xml"),
 				"  Content-Type: application/rss+xml; charset=utf-8",
 			)
+			assertLines(t, "_headers", headers, "  Strict-Transport-Security: max-age=63072000")
+			assertLines(t, "_headers /about/ block", headerBlock(headers, "/about/"),
+				"  Content-Type: text/html; charset=utf-8",
+			)
+			if block := headerBlock(headers, "/about"); block != "" {
+				t.Errorf("_headers has a block at /about, which the host never serves the page at:\n%s", block)
+			}
 			assertNoNonceCSP(t, "_headers", headers)
 			redirectsFile := read(t, out, "_redirects")
 			assertLines(t, "_redirects", redirectsFile,
@@ -188,18 +198,26 @@ func TestEndToEnd_Vercel(t *testing.T) {
 	}
 	var all []vercelHeader
 	feedType := false
+	aboutType := map[string]bool{}
 	for _, rule := range cfg.Headers {
 		all = append(all, rule.Headers...)
 		if rule.Source == "/feed.xml" {
 			feedType = slices.Contains(rule.Headers, vercelHeader{"Content-Type", "application/rss+xml; charset=utf-8"})
 		}
+		if rule.Source == "/about" || rule.Source == "/about/" {
+			aboutType[rule.Source] = slices.Contains(rule.Headers, vercelHeader{"Content-Type", "text/html; charset=utf-8"})
+		}
 	}
 	if !feedType {
 		t.Errorf("vercel.json has no Content-Type for /feed.xml:\n%s", body)
 	}
+	if !aboutType["/about"] || !aboutType["/about/"] {
+		t.Errorf("vercel.json does not give the about page its headers at both /about and /about/:\n%s", body)
+	}
 	for _, want := range []vercelHeader{
 		{"Referrer-Policy", "same-origin"},
 		{"Cache-Control", "public, max-age=31536000, immutable"},
+		{"Strict-Transport-Security", "max-age=63072000"},
 	} {
 		if !slices.Contains(all, want) {
 			t.Errorf("vercel.json has no header %+v:\n%s", want, body)

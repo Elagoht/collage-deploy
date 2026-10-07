@@ -88,11 +88,11 @@ func (p *Plugin) write(ev *collage.BuildFinishedEvent) error {
 	}
 	switch p.cfg.Target {
 	case "netlify":
-		return writeLines(ev, Compact(ev.Files), netlify)
+		return writeLines(ev, Compact(ev.OutDir, ev.Files), netlify)
 	case "cloudflare":
-		return writeLines(ev, Compact(ev.Files), cloudflare)
+		return writeLines(ev, Compact(ev.OutDir, ev.Files), cloudflare)
 	case "vercel":
-		return writeVercel(ev, Compact(ev.Files))
+		return writeVercel(ev, Compact(ev.OutDir, ev.Files))
 	case "github-pages":
 		return writeGitHubPages(ev)
 	}
@@ -113,9 +113,14 @@ func checkText(ev *collage.BuildFinishedEvent) bool {
 		}
 	}
 	for _, f := range ev.Files {
-		// A file's path is a header rule's path line in _headers.
-		if hasControl(f.Path) {
-			ev.Error(findingPath(f.Path), "deploy-control-character", fmt.Sprintf("the path of built file %q holds a control character", f.Path))
+		// A file's served path, from its path or its file on disk, is a header
+		// rule's path line in _headers.
+		if served := ServedAt(ev.OutDir, f); hasControl(f.Path) || hasControl(served) {
+			bad := f.Path
+			if !hasControl(bad) {
+				bad = served
+			}
+			ev.Error(findingPath(bad), "deploy-control-character", fmt.Sprintf("the path of built file %q holds a control character", bad))
 			clean = false
 		}
 		names := make([]string, 0, len(f.Headers))

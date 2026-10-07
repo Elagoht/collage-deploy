@@ -119,7 +119,7 @@ func writeVercel(ev *collage.BuildFinishedEvent, rules []HeaderRule) error {
 	}
 	served := map[string]bool{}
 	for _, f := range ev.Files {
-		served[ServedPath(f.Path)] = true
+		served[ServedAt(ev.OutDir, f)] = true
 	}
 	var cfg vercelConfig
 	for _, r := range rules {

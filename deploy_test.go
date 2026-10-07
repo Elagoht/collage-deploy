@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"testing/fstest"
@@ -145,5 +146,18 @@ func TestControlCharacterInFilePathIsAnError(t *testing.T) {
 	}
 	if entries, _ := os.ReadDir(ev.OutDir); len(entries) != 0 {
 		t.Errorf("wrote %v", entries)
+	}
+}
+
+// TestControlCharacterInTheServedPathIsAnError: a header rule's path comes from
+// the file on disk, so a control character there is refused as one in Path is.
+func TestControlCharacterInTheServedPathIsAnError(t *testing.T) {
+	out := t.TempDir()
+	ev := &collage.BuildFinishedEvent{OutDir: out, Files: []collage.BuiltFile{
+		{Path: "/ab", File: filepath.Join(out, "a\nb", "index.html"), Status: 200, Headers: http.Header{"A": {"1"}}},
+	}}
+	finishedWith(t, ev)
+	if len(ev.Findings) != 1 || ev.Findings[0].Rule != "deploy-control-character" || strings.ContainsAny(ev.Findings[0].Path, "\n") {
+		t.Fatalf("findings = %+v", ev.Findings)
 	}
 }

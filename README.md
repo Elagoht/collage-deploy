@@ -116,6 +116,12 @@ the fewest rules that give every captured file exactly its own back: what every
 captured file shares goes under `/*`, what every file of a directory shares under
 `/dir/*`, and the rest at the file's own path.
 
+Every rule is written at the path the host serves the file at, taken from where
+the build wrote it rather than from the route: a page registered as `/about` and
+written to `about/index.html` has its rule at `/about/`, and a section index
+`/blog` (written to `blog/index.html`) is under `/blog/`, so a `/blog/*` rule is
+written only when it carries the index's headers too.
+
 A file the build did not ask for (the 404 pages it writes, the root redirect)
 carries no headers of its own, but a host cannot tell it from the rest, so the
 `/*` headers reach it, the 404 pages included. A `/dir/*` rule is written only

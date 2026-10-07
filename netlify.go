@@ -171,7 +171,7 @@ type line struct {
 func (h lineHost) redirects(ev *collage.BuildFinishedEvent) string {
 	served := map[string]bool{}
 	for _, f := range ev.Files {
-		served[ServedPath(f.Path)] = true
+		served[ServedAt(ev.OutDir, f)] = true
 	}
 	var lines []line
 	var gone, unwritable, downgraded []string

@@ -30,10 +30,15 @@ const (
 // Link values, an about page framed differently, the 404 page the build wrote
 // without asking for it, and literal, patterned, catch-all and gone redirects.
 func fixture(dir string) *collage.BuildFinishedEvent {
+	// A page is registered as collage registers one by default, with no
+	// trailing slash, and written to its directory's index.html.
 	page := func(path, frame string) collage.BuiltFile {
-		return ok(path,
+		f := ok(path,
 			"X-Content-Type-Options", nosniff, "Referrer-Policy", referrer,
 			"Content-Type", html, "Cache-Control", noCache, "X-Frame-Options", frame, "Content-Security-Policy", csp)
+		f.Kind = "page"
+		f.File = filepath.Join(dir, filepath.FromSlash(strings.TrimPrefix(path, "/")), "index.html")
+		return f
 	}
 	asset := func(path, ctype string) collage.BuiltFile {
 		return ok(path, "X-Content-Type-Options", nosniff, "Referrer-Policy", referrer, "Content-Type", ctype, "Cache-Control", immutable)
@@ -42,8 +47,8 @@ func fixture(dir string) *collage.BuildFinishedEvent {
 		OutDir: dir,
 		Files: []collage.BuiltFile{
 			page("/", "DENY"),
-			page("/blog/", "DENY"),
-			page("/about/", "SAMEORIGIN"),
+			page("/blog", "DENY"),
+			page("/about", "SAMEORIGIN"),
 			asset("/static/app.3f2a9c.css", "text/css; charset=utf-8"),
 			asset("/static/print.77d01b.css", "text/css; charset=utf-8"),
 			ok("/feed.xml", "X-Content-Type-Options", nosniff, "Referrer-Policy", referrer,

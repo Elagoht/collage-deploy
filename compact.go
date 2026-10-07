@@ -3,6 +3,7 @@ package deploy
 import (
 	"net/http"
 	"net/textproto"
+	"path/filepath"
 	"slices"
 	"sort"
 	"strings"
@@ -18,10 +19,11 @@ type HeaderRule struct {
 	Headers http.Header
 }
 
-// ServedPath returns the path a host serves a built file at: the path with a
-// leading slash, and "index.html" dropped, so "blog/index.html" is "/blog/". The
-// build already names files this way; the function makes the spelling certain for
-// every writer that matches on it.
+// ServedPath returns the path a host serves a file at, spelled by its path
+// under the output: a leading slash, and "index.html" dropped, so
+// "blog/index.html" is "/blog/". It is not a page's BuiltFile.Path, which is the
+// route as registered — "/blog" for blog/index.html unless the application uses
+// a trailing slash; ServedAt derives the served path from the file instead.
 func ServedPath(path string) string {
 	if !strings.HasPrefix(path, "/") {
 		path = "/" + path
@@ -30,6 +32,19 @@ func ServedPath(path string) string {
 		return dir + "/"
 	}
 	return path
+}
+
+// ServedAt returns the path a host serves f at, from where the build wrote it:
+// its File under outDir, so a page registered as "/about" and written to
+// about/index.html is "/about/". A file with no File, or outside outDir, falls
+// back to ServedPath of its Path.
+func ServedAt(outDir string, f collage.BuiltFile) string {
+	if f.File != "" && outDir != "" {
+		if rel, err := filepath.Rel(outDir, f.File); err == nil && filepath.IsLocal(rel) {
+			return ServedPath(filepath.ToSlash(rel))
+		}
+	}
+	return ServedPath(f.Path)
 }
 
 // entry is one built file as compaction sees it.
@@ -46,10 +61,10 @@ type entry struct {
 
 // entries canonicalises every file, in an order that does not depend on the order
 // they were given in.
-func entries(files []collage.BuiltFile) []entry {
+func entries(outDir string, files []collage.BuiltFile) []entry {
 	out := make([]entry, 0, len(files))
 	for _, f := range files {
-		e := entry{path: ServedPath(f.Path), headers: http.Header{}}
+		e := entry{path: ServedAt(outDir, f), headers: http.Header{}}
 		switch {
 		case f.Status >= 200 && f.Status <= 299 && f.Headers != nil:
 			e.captured = true
@@ -116,8 +131,8 @@ func headerKey(h http.Header) string {
 //   - A file asked for and answered other than 2xx (a redirect, a 404) blocks
 //     "/*" altogether: its own response does not carry what the pages do. Rules
 //     then fall back to directories and paths.
-func Compact(files []collage.BuiltFile) []HeaderRule {
-	all := entries(files)
+func Compact(outDir string, files []collage.BuiltFile) []HeaderRule {
+	all := entries(outDir, files)
 	var caps []entry
 	blocked := false
 	for _, e := range all {
@@ -230,7 +245,7 @@ func Compact(files []collage.BuiltFile) []HeaderRule {
 
 // Expand returns the headers a host applies to path under rules: every rule that
 // matches, in order, a later rule replacing the values of a header an earlier one
-// set. path is a served path, as ServedPath spells it.
+// set. path is a served path, as ServedAt spells it.
 func Expand(rules []HeaderRule, path string) http.Header {
 	out := http.Header{}
 	for _, r := range rules {
