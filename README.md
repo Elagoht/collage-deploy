@@ -30,6 +30,11 @@ renamed `p1`, `p2`, … within its rule. A rule the host cannot express is left 
 with a warning naming it; the plugin never writes a rule that would redirect
 differently from the application.
 
+A control character in a redirect, a path or a header, or a header name that is
+not an HTTP token (a space or a `:` in it), would make a host read a line
+differently: it is an error naming it (`deploy-control-character`,
+`deploy-unsupported-header`), and nothing is written.
+
 Redirects are written most specific first, as collage's router prefers them
 (literal segments, then placeholders with text around them, the longer text
 first, then placeholders, then catch-alls), since every host takes the first rule that matches.

@@ -16,6 +16,7 @@ import (
 	"slices"
 	"sort"
 	"strconv"
+	"strings"
 	"unicode"
 
 	"github.com/Elagoht/collage/pkg/collage"
@@ -132,6 +133,11 @@ func checkText(ev *collage.BuildFinishedEvent) bool {
 			if bad := headerText(name, f.Headers); bad != "" {
 				ev.Error(findingPath(f.Path), "deploy-control-character", fmt.Sprintf("header %q of %q holds a control character: %q", name, f.Path, bad))
 				clean = false
+				continue
+			}
+			if !validHeaderName(name) {
+				ev.Error(findingPath(f.Path), "deploy-unsupported-header", fmt.Sprintf("header name %q of %q is not an HTTP token: a host would read its line differently", name, f.Path))
+				clean = false
 			}
 		}
 	}
@@ -150,6 +156,25 @@ func headerText(name string, h http.Header) string {
 		}
 	}
 	return ""
+}
+
+// validHeaderName reports whether name is an HTTP token (RFC 9110 5.1, RFC
+// 7230 3.2.6): one or more tchars, so no space, ":" or separator that would
+// split a host's header line elsewhere.
+func validHeaderName(name string) bool {
+	if name == "" {
+		return false
+	}
+	for i := 0; i < len(name); i++ {
+		c := name[i]
+		switch {
+		case c >= 'a' && c <= 'z', c >= 'A' && c <= 'Z', c >= '0' && c <= '9':
+		case strings.IndexByte("!#$%&'*+-.^_`|~", c) >= 0:
+		default:
+			return false
+		}
+	}
+	return true
 }
 
 // findingPath is a path made safe to print in a report: quoted when it holds a

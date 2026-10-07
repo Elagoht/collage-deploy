@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"testing/fstest"
@@ -159,5 +160,24 @@ func TestControlCharacterInTheServedPathIsAnError(t *testing.T) {
 	finishedWith(t, ev)
 	if len(ev.Findings) != 1 || ev.Findings[0].Rule != "deploy-control-character" || strings.ContainsAny(ev.Findings[0].Path, "\n") {
 		t.Fatalf("findings = %+v", ev.Findings)
+	}
+}
+
+// TestInvalidHeaderNameIsAnError: a header name that is not an HTTP token — a
+// space or a ":" in it — would be split differently by the host; it is an
+// error naming it, and nothing is written.
+func TestInvalidHeaderNameIsAnError(t *testing.T) {
+	for _, name := range []string{"X Bad", "X:Bad", "X(Bad)", ""} {
+		out := t.TempDir()
+		ev := &collage.BuildFinishedEvent{OutDir: out, Files: []collage.BuiltFile{
+			{Path: "/x", Status: 200, Headers: http.Header{name: {"1"}, "X-Fine": {"1"}}},
+		}}
+		finishedWith(t, ev)
+		if len(ev.Findings) != 1 || ev.Findings[0].Level != collage.FindingError || ev.Findings[0].Rule != "deploy-unsupported-header" || !strings.Contains(ev.Findings[0].Message, strconv.Quote(name)) {
+			t.Errorf("%q: findings = %+v", name, ev.Findings)
+		}
+		if entries, _ := os.ReadDir(out); len(entries) != 0 {
+			t.Errorf("%q: wrote %v", name, entries)
+		}
 	}
 }
