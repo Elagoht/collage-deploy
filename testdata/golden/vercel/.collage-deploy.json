@@ -1,0 +1,9 @@
+{
+  "target": "vercel",
+  "files": [
+    {
+      "path": "vercel.json",
+      "sha256": "ce1121cf0236291835679e84b2743533b88e12538254510ee164bddd626ab53c"
+    }
+  ]
+}

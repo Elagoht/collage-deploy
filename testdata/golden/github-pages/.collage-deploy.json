@@ -1,0 +1,13 @@
+{
+  "target": "github-pages",
+  "files": [
+    {
+      "path": ".nojekyll",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "old/index.html",
+      "sha256": "2fad266f947605d1d5daaa9e3ec37b0d73d736ddce0a93fb5d5ee4088c371fcb"
+    }
+  ]
+}

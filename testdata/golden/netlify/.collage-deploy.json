@@ -1,0 +1,13 @@
+{
+  "target": "netlify",
+  "files": [
+    {
+      "path": "_headers",
+      "sha256": "5bd57457ccaf350cc70b827dc39d5463acab9021e92acc93f8cb8c2b08fd071a"
+    },
+    {
+      "path": "_redirects",
+      "sha256": "97dc625982154c06185442aad4102f013a937cc0db541bd4103d128811aeef87"
+    }
+  ]
+}

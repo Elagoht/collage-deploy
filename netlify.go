@@ -90,19 +90,19 @@ func lineTo(text string) error {
 }
 
 // writeLines writes _headers and _redirects for h.
-func writeLines(ev *collage.BuildFinishedEvent, rules []HeaderRule, h lineHost) error {
+func writeLines(ev *collage.BuildFinishedEvent, out *output, rules []HeaderRule, h lineHost) error {
 	if !claim(ev, "_headers", "_redirects") {
 		return nil
 	}
 	headers := h.headers(ev, rules)
 	redirects := h.redirects(ev)
 	if headers != "" {
-		if err := create(ev.OutDir, "_headers", []byte(headers)); err != nil {
+		if err := out.create("_headers", []byte(headers)); err != nil {
 			return err
 		}
 	}
 	if redirects != "" {
-		if err := create(ev.OutDir, "_redirects", []byte(redirects)); err != nil {
+		if err := out.create("_redirects", []byte(redirects)); err != nil {
 			return err
 		}
 	}

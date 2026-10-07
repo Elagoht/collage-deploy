@@ -39,11 +39,22 @@ Redirects are written most specific first, as collage's router prefers them
 (literal segments, then placeholders with text around them, the longer text
 first, then placeholders, then catch-alls), since every host takes the first rule that matches.
 
-An existing `_headers`, `_redirects` or `vercel.json` in the output, whether the
-build wrote it or it was there before, is an error naming it, and nothing is
-written: the plugin never overwrites or merges into a file it did not write. The
-same goes for a file at a GitHub Pages redirect page's path. An existing
-`.nojekyll` is left as it is.
+The plugin records what it wrote in `.collage-deploy.json` at the root of the
+output: the target, and each file by path with its SHA-256, sorted. `collage
+export` does not clean its output by default, so the next build into the same
+directory finds those files; one the manifest lists and that is unchanged since is
+the plugin's own, and is replaced — or removed, with any directory that leaves
+empty, when this build no longer writes it, as after switching target. The
+manifest is part of the output and is deployed with it; it holds nothing but those
+paths and hashes.
+
+Any other existing `_headers`, `_redirects` or `vercel.json` in the output — the
+build wrote it, it was there before, or it is one the plugin wrote and someone
+edited since — is an error naming it, and nothing is written: the plugin never
+overwrites or merges into a file it did not write. The same goes for a file at a
+GitHub Pages redirect page's path. An existing `.nojekyll` the plugin did not
+write is left as it is. A manifest the plugin cannot read is an error
+(`deploy-manifest`), and nothing is written or removed.
 
 ## Host formats
 

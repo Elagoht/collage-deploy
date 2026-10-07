@@ -3,8 +3,13 @@ package deploy_test
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
+	"io/fs"
 	"maps"
 	"os"
 	"path/filepath"
@@ -156,7 +161,7 @@ func TestGolden(t *testing.T) {
 			noErrors(t, ev)
 			golden(t, target, dir)
 			for name, data := range tree(t, dir) {
-				if bytes.ContainsAny(data, "{}") && name != "vercel.json" {
+				if bytes.ContainsAny(data, "{}") && name != "vercel.json" && name != manifestName {
 					t.Errorf("%s: %s holds a brace from a redirect:\n%s", target, name, data)
 				}
 				if name == "vercel.json" && (bytes.Contains(data, []byte("{slug")) || bytes.Contains(data, []byte("{rest"))) {
@@ -529,8 +534,8 @@ func TestGitHubPagesNeverWritesOutsideTheOutput(t *testing.T) {
 	if len(entries) != 1 {
 		t.Errorf("written beside the output: %v", entries)
 	}
-	if got := tree(t, dir); len(got) != 1 {
-		t.Errorf("written: %v", slices.Sorted(maps.Keys(got)))
+	if got := tree(t, dir); len(got) != 2 || got[".nojekyll"] == nil || got[manifestName] == nil {
+		t.Errorf("written: %v, want .nojekyll and the manifest", slices.Sorted(maps.Keys(got)))
 	}
 	if w := findings(ev, "deploy-unsupported-redirect"); len(w) != 1 || !strings.Contains(w[0].Message, "/../escape") {
 		t.Errorf("findings = %+v", ev.Findings)
@@ -647,5 +652,173 @@ func TestGitHubPagesTwoRedirectsOnOneFile(t *testing.T) {
 	}
 	if got := read(t, dir, "old/index.html"); !strings.Contains(got, `url=/a"`) {
 		t.Errorf("old/index.html = %s, want the first redirect's page", got)
+	}
+}
+
+// manifestName is the file the plugin records what it wrote in.
+const manifestName = ".collage-deploy.json"
+
+// TestReExportIntoTheSameDirectory: collage export does not clean its output by
+// default, so a second build into one directory finds the files the plugin
+// wrote the first time. They are listed in its manifest, unchanged, and are
+// replaced; the result is what one build into an empty directory writes.
+func TestReExportIntoTheSameDirectory(t *testing.T) {
+	for _, target := range deploy.Targets {
+		t.Run(target, func(t *testing.T) {
+			dir := t.TempDir()
+			run(t, target, fixture(dir))
+			first := tree(t, dir)
+			if _, ok := first[manifestName]; !ok {
+				t.Fatalf("no %s written: %v", manifestName, slices.Sorted(maps.Keys(first)))
+			}
+			ev := fixture(dir)
+			run(t, target, ev)
+			noErrors(t, ev)
+			if got := tree(t, dir); !maps.EqualFunc(got, first, bytes.Equal) {
+				t.Errorf("the second build wrote %v, the first %v", slices.Sorted(maps.Keys(got)), slices.Sorted(maps.Keys(first)))
+			}
+		})
+	}
+}
+
+// TestManifestIsSortedAndNamesTheTarget: the manifest is deterministic — the
+// target, then every file the plugin wrote, by path, with its SHA-256 — and does
+// not list itself.
+func TestManifestIsSortedAndNamesTheTarget(t *testing.T) {
+	dir := t.TempDir()
+	run(t, "github-pages", fixture(dir))
+	var m struct {
+		Target string `json:"target"`
+		Files  []struct {
+			Path   string `json:"path"`
+			SHA256 string `json:"sha256"`
+		} `json:"files"`
+	}
+	if err := json.Unmarshal([]byte(read(t, dir, manifestName)), &m); err != nil {
+		t.Fatal(err)
+	}
+	if m.Target != "github-pages" {
+		t.Errorf("target = %q", m.Target)
+	}
+	var paths []string
+	for _, f := range m.Files {
+		paths = append(paths, f.Path)
+		sum := sha256.Sum256([]byte(read(t, dir, f.Path)))
+		if f.SHA256 != hex.EncodeToString(sum[:]) {
+			t.Errorf("%s: sha256 %s does not match the file", f.Path, f.SHA256)
+		}
+	}
+	if !slices.IsSorted(paths) || slices.Contains(paths, manifestName) || !slices.Contains(paths, ".nojekyll") || !slices.Contains(paths, "old/index.html") {
+		t.Errorf("paths = %v", paths)
+	}
+}
+
+// TestAnEditedFileIsStillRefused: a file the plugin wrote and the user changed
+// since is the user's now. It is refused as any other file is, and left as it is.
+func TestAnEditedFileIsStillRefused(t *testing.T) {
+	dir := t.TempDir()
+	run(t, "netlify", fixture(dir))
+	edited := []byte("/*\n  X-Mine: 1\n")
+	if err := os.WriteFile(filepath.Join(dir, "_headers"), edited, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	ev := fixture(dir)
+	run(t, "netlify", ev)
+	if errs := findings(ev, "deploy-existing-file"); len(errs) != 1 || !strings.Contains(errs[0].Message, "_headers") {
+		t.Fatalf("findings = %+v", ev.Findings)
+	}
+	if got := read(t, dir, "_headers"); got != string(edited) {
+		t.Errorf("_headers = %q, want the user's edit", got)
+	}
+}
+
+// TestSwitchingTargetRemovesTheOldTargetsFiles: a build for another target
+// removes what the plugin wrote for the last one, when it is unchanged, and an
+// edited one is left alone.
+func TestSwitchingTargetRemovesTheOldTargetsFiles(t *testing.T) {
+	dir := t.TempDir()
+	run(t, "github-pages", fixture(dir))
+	run(t, "netlify", fixture(dir))
+	got := tree(t, dir)
+	for _, gone := range []string{".nojekyll", "old/index.html"} {
+		if _, ok := got[gone]; ok {
+			t.Errorf("%s, written for github-pages, is still there", gone)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(dir, "old")); !errors.Is(err, fs.ErrNotExist) {
+		t.Errorf("the emptied directory old/ is still there: %v", err)
+	}
+	for _, want := range []string{"_headers", "_redirects", manifestName} {
+		if _, ok := got[want]; !ok {
+			t.Errorf("%s was not written", want)
+		}
+	}
+	if !strings.Contains(string(got[manifestName]), `"target": "netlify"`) {
+		t.Errorf("manifest = %s", got[manifestName])
+	}
+
+	if err := os.WriteFile(filepath.Join(dir, "_redirects"), []byte("/mine /x 301\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	ev := fixture(dir)
+	run(t, "vercel", ev)
+	noErrors(t, ev)
+	got = tree(t, dir)
+	if _, ok := got["_headers"]; ok {
+		t.Error("_headers, written for netlify, is still there")
+	}
+	if string(got["_redirects"]) != "/mine /x 301\n" {
+		t.Errorf("the edited _redirects was not left alone: %q", got["_redirects"])
+	}
+	if _, ok := got["vercel.json"]; !ok {
+		t.Error("vercel.json was not written")
+	}
+}
+
+// TestAManifestEntryOutsideTheOutputIsIgnored: the manifest is a file in the
+// output anyone can edit; an entry naming a path outside it, or a link, is
+// never removed.
+func TestAManifestEntryOutsideTheOutputIsIgnored(t *testing.T) {
+	root := t.TempDir()
+	dir := filepath.Join(root, "out")
+	if err := os.Mkdir(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	outside := filepath.Join(root, "keep")
+	if err := os.WriteFile(outside, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, filepath.Join(dir, "link")); err != nil {
+		t.Fatal(err)
+	}
+	empty := sha256.Sum256(nil)
+	sum := hex.EncodeToString(empty[:])
+	manifest := `{"target": "netlify", "files": [{"path": "../keep", "sha256": "` + sum + `"}, {"path": "link", "sha256": "` + sum + `"}]}`
+	if err := os.WriteFile(filepath.Join(dir, manifestName), []byte(manifest), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	run(t, "netlify", fixture(dir))
+	if _, err := os.Stat(outside); err != nil {
+		t.Errorf("a file outside the output was removed: %v", err)
+	}
+	if _, err := os.Lstat(filepath.Join(dir, "link")); err != nil {
+		t.Errorf("a link was removed: %v", err)
+	}
+}
+
+// TestAnUnreadableManifestIsAnError: a manifest the plugin cannot read cannot
+// say which files are its own; nothing is written or removed.
+func TestAnUnreadableManifestIsAnError(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, manifestName), []byte("not json"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	ev := fixture(dir)
+	run(t, "netlify", ev)
+	if errs := findings(ev, "deploy-manifest"); len(errs) != 1 || errs[0].Level != collage.FindingError {
+		t.Fatalf("findings = %+v", ev.Findings)
+	}
+	if got := tree(t, dir); len(got) != 1 {
+		t.Errorf("wrote %v", slices.Sorted(maps.Keys(got)))
 	}
 }

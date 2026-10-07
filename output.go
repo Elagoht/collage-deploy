@@ -1,6 +1,8 @@
 package deploy
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -42,6 +44,27 @@ func claim(ev *collage.BuildFinishedEvent, names ...string) bool {
 	return free
 }
 
+// output is the plugin's writes into a build's output directory, recorded for
+// its manifest.
+type output struct {
+	dir string
+	// wrote maps each file written, by slash path under dir, to the hex
+	// SHA-256 of what was written.
+	wrote map[string]string
+}
+
+func newOutput(dir string) *output { return &output{dir: dir, wrote: map[string]string{}} }
+
+// create writes data to name under the output, refusing a file (or link)
+// already there, and records it.
+func (o *output) create(name string, data []byte) error {
+	if err := create(o.dir, name, data); err != nil {
+		return err
+	}
+	o.wrote[name] = digest(data)
+	return nil
+}
+
 // create writes data to name under dir, refusing a file (or link) already
 // there.
 func create(dir, name string, data []byte) error {
@@ -61,6 +84,11 @@ func create(dir, name string, data []byte) error {
 		return fmt.Errorf("elagoht/deploy: %w", err)
 	}
 	return nil
+}
+
+func digest(data []byte) string {
+	sum := sha256.Sum256(data)
+	return hex.EncodeToString(sum[:])
 }
 
 // sortedNames are h's header names in order: http.Header is a map, and a file

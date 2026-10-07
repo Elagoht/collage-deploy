@@ -17,9 +17,9 @@ import (
 // directories beginning with "_" are published, and a meta-refresh page at
 // each literal redirect's From. GitHub Pages sets no custom headers and
 // answers no redirect of its own.
-func writeGitHubPages(ev *collage.BuildFinishedEvent) error {
+func writeGitHubPages(ev *collage.BuildFinishedEvent, out *output) error {
 	if _, err := os.Lstat(filepath.Join(ev.OutDir, ".nojekyll")); errors.Is(err, fs.ErrNotExist) {
-		if err := create(ev.OutDir, ".nojekyll", nil); err != nil {
+		if err := out.create(".nojekyll", nil); err != nil {
 			return err
 		}
 	}
@@ -70,7 +70,7 @@ func writeGitHubPages(ev *collage.BuildFinishedEvent) error {
 			ev.Error(r.From, "deploy-existing-file", fmt.Sprintf("the redirect page for %s is not written: %s is already in the output", label, name))
 			continue
 		}
-		if err := create(ev.OutDir, name, refreshPage(r.To)); err != nil {
+		if err := out.create(name, refreshPage(r.To)); err != nil {
 			return err
 		}
 		pages[name] = label

@@ -87,15 +87,35 @@ func (p *Plugin) write(ev *collage.BuildFinishedEvent) error {
 	if ev.OutDir == "" {
 		return fmt.Errorf("elagoht/deploy: the build names no output directory to write into")
 	}
+	previous, err := readManifest(ev.OutDir)
+	if err != nil {
+		ev.Error("/"+ManifestFile, "deploy-manifest", fmt.Sprintf("%s cannot be read (%v), so which files the plugin wrote last time is not known; nothing is written; remove it, and the files it listed", ManifestFile, err))
+		return nil
+	}
+	if err := previous.release(ev.OutDir, builtFiles(ev)); err != nil {
+		return err
+	}
+	out := newOutput(ev.OutDir)
+	err = p.writeTarget(ev, out)
+	// What was written is recorded even when a writer failed part way, so the
+	// next build can replace it.
+	if recordErr := out.record(p.cfg.Target); err == nil {
+		err = recordErr
+	}
+	return err
+}
+
+// writeTarget hands the build to the target's writer.
+func (p *Plugin) writeTarget(ev *collage.BuildFinishedEvent, out *output) error {
 	switch p.cfg.Target {
 	case "netlify":
-		return writeLines(ev, Compact(ev.OutDir, ev.Files), netlify)
+		return writeLines(ev, out, Compact(ev.OutDir, ev.Files), netlify)
 	case "cloudflare":
-		return writeLines(ev, Compact(ev.OutDir, ev.Files), cloudflare)
+		return writeLines(ev, out, Compact(ev.OutDir, ev.Files), cloudflare)
 	case "vercel":
-		return writeVercel(ev, Compact(ev.OutDir, ev.Files))
+		return writeVercel(ev, out, Compact(ev.OutDir, ev.Files))
 	case "github-pages":
-		return writeGitHubPages(ev)
+		return writeGitHubPages(ev, out)
 	}
 	return fmt.Errorf("elagoht/deploy: unknown target %q", p.cfg.Target)
 }

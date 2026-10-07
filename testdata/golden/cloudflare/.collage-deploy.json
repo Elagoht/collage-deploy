@@ -1,0 +1,13 @@
+{
+  "target": "cloudflare",
+  "files": [
+    {
+      "path": "_headers",
+      "sha256": "5bd57457ccaf350cc70b827dc39d5463acab9021e92acc93f8cb8c2b08fd071a"
+    },
+    {
+      "path": "_redirects",
+      "sha256": "a91952b07104f09f22722f4e0006770f90d2495ecdeb4216b3805ee2024ff0ae"
+    }
+  ]
+}
