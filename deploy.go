@@ -82,9 +82,21 @@ func (p *Plugin) OnBuildFinished(_ context.Context, ev *collage.BuildFinishedEve
 }
 
 // write hands the build to the target's writer.
-func (p *Plugin) write(*collage.BuildFinishedEvent) error {
-	// The writers come in the next step.
-	return nil
+func (p *Plugin) write(ev *collage.BuildFinishedEvent) error {
+	if ev.OutDir == "" {
+		return fmt.Errorf("elagoht/deploy: the build names no output directory to write into")
+	}
+	switch p.cfg.Target {
+	case "netlify":
+		return writeLines(ev, Compact(ev.Files), netlify)
+	case "cloudflare":
+		return writeLines(ev, Compact(ev.Files), cloudflare)
+	case "vercel":
+		return writeVercel(ev, Compact(ev.Files))
+	case "github-pages":
+		return writeGitHubPages(ev)
+	}
+	return fmt.Errorf("elagoht/deploy: unknown target %q", p.cfg.Target)
 }
 
 // checkText reports, as an error naming where it was found, any control character

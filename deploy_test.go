@@ -125,8 +125,9 @@ func TestLineSeparatorsAreControlCharacters(t *testing.T) {
 
 func TestCleanBuildHasNoFindings(t *testing.T) {
 	ev := &collage.BuildFinishedEvent{
+		OutDir:    t.TempDir(),
 		Files:     []collage.BuiltFile{{Path: "/", Status: 200, Headers: http.Header{"A": {"1"}}}},
-		Redirects: []collage.BuiltRedirect{{From: "/a/*", To: "/b/:splat", Status: 301}},
+		Redirects: []collage.BuiltRedirect{{From: "/a/{rest...}", To: "/b/{rest}", Status: 301}},
 	}
 	finishedWith(t, ev)
 	if len(ev.Findings) != 0 {

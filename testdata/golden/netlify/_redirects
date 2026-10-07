@@ -1,0 +1,4 @@
+/old /new 301
+/blog/:slug /posts/:slug 301
+/blog/:slug/feed /posts/:slug/feed.xml 301
+/docs/* /manual/:splat 301

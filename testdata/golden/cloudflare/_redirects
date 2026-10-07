@@ -1,0 +1,7 @@
+/old /new 301
+/old/ /new 301
+/blog/:slug /posts/:slug 308
+/blog/:slug/ /posts/:slug 308
+/blog/:slug/feed /posts/:slug/feed.xml 308
+/blog/:slug/feed/ /posts/:slug/feed.xml 308
+/docs/* /manual/:splat 301
