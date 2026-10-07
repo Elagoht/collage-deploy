@@ -64,10 +64,11 @@ Checked against each host's documentation on 2026-10-07.
   indented `Name: value` lines; several lines with one name are concatenated into
   one header. The docs do not say how two matching paths combine; staff said they
   would not merge them ([forum](https://answers.netlify.com/t/behavior-for-overlapping-paths-in-custom-headers/124217)).
-  Compaction never sets one header name in two rules that match one captured file,
-  so concatenating, replacing and keeping the most specific give the same headers;
-  that Netlify applies every matching path's distinct headers is relied on, as
-  every `/*` plus per-path setup does.
+  Netlify CLI's local emulation (`headersForPath` in
+  [src/utils/headers.ts](https://github.com/netlify/cli/blob/main/src/utils/headers.ts))
+  applies every matching rule, a later one replacing a header an earlier one set,
+  as `Expand` models it. Compaction never sets one header name in two rules that
+  match one captured file, so concatenating and replacing give the same headers.
 
 **Cloudflare Pages**
 - [Redirects](https://developers.cloudflare.com/pages/configuration/redirects/):
@@ -95,6 +96,9 @@ Checked against each host's documentation on 2026-10-07.
   so `/(.*)` is everything, and literal `:()*+?{}[]\` are escaped. With
   `trailingSlash` unset, "both `/about` and `/about/` will serve the same content",
   so a directory's header rule and every redirect are written at both spellings.
+  `vercel.json` is read from the project's root directory, and the plugin writes
+  it into the build output: deploy the output directory as the project (for
+  example `vercel deploy dist`), or the file is not read.
   At most 2048 routes per deployment
   ([limits](https://vercel.com/kb/guide/how-can-i-increase-the-limit-of-redirects-or-use-dynamic-redirects-on-vercel)).
 

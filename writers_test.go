@@ -503,3 +503,31 @@ func TestGitHubPagesKeepsAnExistingNoJekyll(t *testing.T) {
 		t.Errorf("findings = %+v", ev.Findings)
 	}
 }
+
+func TestGitHubPagesNeverWritesOutsideTheOutput(t *testing.T) {
+	root := t.TempDir()
+	dir := filepath.Join(root, "out")
+	if err := os.Mkdir(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	ev := &collage.BuildFinishedEvent{OutDir: dir, Redirects: []collage.BuiltRedirect{
+		{From: "/../escape", To: "/x", Status: 301},
+		{From: "/a/../../escape2.html", To: "/x", Status: 301},
+		{From: "/./b", To: "/x", Status: 301},
+		{From: `/c\..\..\escape3`, To: "/x", Status: 301},
+	}}
+	run(t, "github-pages", ev)
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 {
+		t.Errorf("written beside the output: %v", entries)
+	}
+	if got := tree(t, dir); len(got) != 1 {
+		t.Errorf("written: %v", slices.Sorted(maps.Keys(got)))
+	}
+	if w := findings(ev, "deploy-unsupported-redirect"); len(w) != 1 || !strings.Contains(w[0].Message, "/../escape") {
+		t.Errorf("findings = %+v", ev.Findings)
+	}
+}

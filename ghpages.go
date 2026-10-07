@@ -71,7 +71,7 @@ func writeGitHubPages(ev *collage.BuildFinishedEvent) error {
 		ev.Warn("", "deploy-gone", fmt.Sprintf("GitHub Pages cannot answer 410; these paths answer 404 instead: %s", left(gone)))
 	}
 	if len(notHTML) > 0 {
-		ev.Warn("", "deploy-unsupported-redirect", fmt.Sprintf("a meta-refresh page has to be served as HTML, and these redirects are from a path GitHub Pages would serve as another type; not written: %s", left(notHTML)))
+		ev.Warn("", "deploy-unsupported-redirect", fmt.Sprintf("these redirects cannot be meta-refresh pages, which have to be served as HTML from a file inside the output; not written: %s", left(notHTML)))
 	}
 	if len(written) > 0 {
 		ev.Warn("", "deploy-meta-refresh", fmt.Sprintf("GitHub Pages answers redirects with a meta-refresh page and status 200, so their status is not sent: %s", left(written)))
@@ -81,9 +81,18 @@ func writeGitHubPages(ev *collage.BuildFinishedEvent) error {
 
 // refreshFile is the file GitHub Pages serves at from: "old/index.html" for
 // "/old" and "/old/", "old.html" for "/old.html"; false for a path with an
-// extension other than .html.
+// extension other than .html, and for one with a "." or ".." segment or a backslash,
+// which would name a file outside the output (and which a browser never sends).
 func refreshFile(from string) (string, bool) {
 	trimmed := strings.Trim(from, "/")
+	if strings.ContainsRune(trimmed, '\\') {
+		return "", false
+	}
+	for _, segment := range strings.Split(trimmed, "/") {
+		if segment == "." || segment == ".." {
+			return "", false
+		}
+	}
 	switch ext := path.Ext(trimmed); {
 	case trimmed == "":
 		return "index.html", true
