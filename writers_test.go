@@ -621,3 +621,31 @@ func TestPlaceholderInDestinationAuthorityIsAnError(t *testing.T) {
 		}
 	}
 }
+
+// TestGitHubPagesTwoRedirectsOnOneFile: "/old" and "/old/index.html" are two
+// redirects to the router and one file, old/index.html, to GitHub Pages. The
+// second is an error naming both, not one saying the file was already there.
+func TestGitHubPagesTwoRedirectsOnOneFile(t *testing.T) {
+	dir := t.TempDir()
+	ev := &collage.BuildFinishedEvent{OutDir: dir, Redirects: []collage.BuiltRedirect{
+		{From: "/old", To: "/a", Status: 301, Source: "page:a"},
+		{From: "/old/index.html", To: "/b", Status: 301, Source: "elagoht/redirects"},
+	}}
+	run(t, "github-pages", ev)
+	errs := findings(ev, "deploy-existing-file")
+	if len(errs) != 1 || errs[0].Level != collage.FindingError {
+		t.Fatalf("findings = %+v", ev.Findings)
+	}
+	msg := errs[0].Message
+	for _, want := range []string{"/old (page:a)", "/old/index.html (elagoht/redirects)", "old/index.html"} {
+		if !strings.Contains(msg, want) {
+			t.Errorf("message %q does not name %q", msg, want)
+		}
+	}
+	if strings.Contains(msg, "already in the output") {
+		t.Errorf("message %q blames the output for the plugin's own page", msg)
+	}
+	if got := read(t, dir, "old/index.html"); !strings.Contains(got, `url=/a"`) {
+		t.Errorf("old/index.html = %s, want the first redirect's page", got)
+	}
+}

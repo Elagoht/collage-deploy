@@ -40,6 +40,9 @@ func writeGitHubPages(ev *collage.BuildFinishedEvent) error {
 	}
 
 	var patterned, gone, notHTML, written []string
+	// pages are the redirect pages written so far, by file, with the redirect
+	// each was written for.
+	pages := map[string]string{}
 	for _, r := range readRedirects(ev) {
 		label := fmt.Sprintf("%s (%s)", r.From, r.Source)
 		switch {
@@ -59,6 +62,10 @@ func writeGitHubPages(ev *collage.BuildFinishedEvent) error {
 			notHTML = append(notHTML, label)
 			continue
 		}
+		if first, ok := pages[name]; ok {
+			ev.Error(r.From, "deploy-existing-file", fmt.Sprintf("the redirect page for %s is not written: GitHub Pages serves %s for both it and %s, whose page is written there", label, name, first))
+			continue
+		}
 		if _, err := os.Lstat(filepath.Join(ev.OutDir, filepath.FromSlash(name))); !errors.Is(err, fs.ErrNotExist) {
 			ev.Error(r.From, "deploy-existing-file", fmt.Sprintf("the redirect page for %s is not written: %s is already in the output", label, name))
 			continue
@@ -66,6 +73,7 @@ func writeGitHubPages(ev *collage.BuildFinishedEvent) error {
 		if err := create(ev.OutDir, name, refreshPage(r.To)); err != nil {
 			return err
 		}
+		pages[name] = label
 		written = append(written, fmt.Sprintf("%s %d", r.From, r.Status))
 	}
 	if len(patterned) > 0 {
