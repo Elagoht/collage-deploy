@@ -100,7 +100,7 @@ func (p *Plugin) write(ev *collage.BuildFinishedEvent) error {
 }
 
 // checkText reports, as an error naming where it was found, any control character
-// in a redirect or a header: either would split a line of a host's file and write
+// in a redirect, a built file's path or a header: either would split a line of a host's file and write
 // a rule nobody declared. It reports whether the build is clean.
 func checkText(ev *collage.BuildFinishedEvent) bool {
 	clean := true
@@ -113,6 +113,11 @@ func checkText(ev *collage.BuildFinishedEvent) bool {
 		}
 	}
 	for _, f := range ev.Files {
+		// A file's path is a header rule's path line in _headers.
+		if hasControl(f.Path) {
+			ev.Error(findingPath(f.Path), "deploy-control-character", fmt.Sprintf("the path of built file %q holds a control character", f.Path))
+			clean = false
+		}
 		names := make([]string, 0, len(f.Headers))
 		for name := range f.Headers {
 			names = append(names, name)
@@ -120,7 +125,7 @@ func checkText(ev *collage.BuildFinishedEvent) bool {
 		sort.Strings(names)
 		for _, name := range names {
 			if bad := headerText(name, f.Headers); bad != "" {
-				ev.Error(findingPath(f.Path), "deploy-control-character", fmt.Sprintf("header %q of %s holds a control character: %q", name, f.Path, bad))
+				ev.Error(findingPath(f.Path), "deploy-control-character", fmt.Sprintf("header %q of %q holds a control character: %q", name, f.Path, bad))
 				clean = false
 			}
 		}

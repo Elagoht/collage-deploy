@@ -531,3 +531,62 @@ func TestGitHubPagesNeverWritesOutsideTheOutput(t *testing.T) {
 		t.Errorf("findings = %+v", ev.Findings)
 	}
 }
+
+func TestLongerAffixRanksFirst(t *testing.T) {
+	dir := t.TempDir()
+	ev := &collage.BuildFinishedEvent{OutDir: dir, Redirects: []collage.BuiltRedirect{
+		{From: "/{slug}", To: "/s/{slug}", Status: 301},
+		{From: "/post-{id}", To: "/p/{id}", Status: 301},
+		{From: "/post-{id}.md", To: "/p/{id}/md", Status: 301},
+		{From: "/about", To: "/a", Status: 301},
+	}}
+	run(t, "vercel", ev)
+	data, err := os.ReadFile(filepath.Join(dir, "vercel.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var sources []string
+	for _, l := range strings.Split(string(data), "\n") {
+		if v, ok := strings.CutPrefix(strings.TrimSpace(l), `"source": `); ok {
+			sources = append(sources, strings.Trim(strings.TrimSuffix(v, ","), `"`))
+		}
+	}
+	want := []string{"/about", "/about/", "/post-:id.md", "/post-:id.md/", "/post-:id", "/post-:id/", "/:slug", "/:slug/"}
+	if !slices.Equal(sources, want) {
+		t.Errorf("sources = %v\nwant      %v", sources, want)
+	}
+}
+
+func TestVercelAllowsAPortInAnAbsoluteDestination(t *testing.T) {
+	dir := t.TempDir()
+	ev := &collage.BuildFinishedEvent{OutDir: dir, Redirects: []collage.BuiltRedirect{
+		{From: "/a/{x}", To: "http://h:8080/x/{x}", Status: 301},
+		{From: "/b", To: "/c/:d", Status: 301},
+	}}
+	run(t, "vercel", ev)
+	data, _ := os.ReadFile(filepath.Join(dir, "vercel.json"))
+	if !bytes.Contains(data, []byte(`"destination": "http://h:8080/x/:x"`)) {
+		t.Errorf("vercel.json = %s", data)
+	}
+	if w := findings(ev, "deploy-unsupported-redirect"); len(w) != 1 || !strings.Contains(w[0].Message, "/b") || strings.Contains(w[0].Message, "/a/{x}") {
+		t.Errorf("findings = %+v", ev.Findings)
+	}
+	// _redirects stays cautious.
+	ev = &collage.BuildFinishedEvent{OutDir: t.TempDir(), Redirects: ev.Redirects}
+	run(t, "netlify", ev)
+	if w := findings(ev, "deploy-unsupported-redirect"); len(w) != 1 || !strings.Contains(w[0].Message, "/a/{x}") {
+		t.Errorf("netlify findings = %+v", ev.Findings)
+	}
+}
+
+func TestVercelRouteLimitWording(t *testing.T) {
+	ev := &collage.BuildFinishedEvent{OutDir: t.TempDir()}
+	for i := range 1025 {
+		ev.Redirects = append(ev.Redirects, collage.BuiltRedirect{From: fmt.Sprintf("/r%d", i), To: "/x", Status: 301})
+	}
+	run(t, "vercel", ev)
+	w := findings(ev, "deploy-limit")
+	if len(w) != 1 || strings.Contains(w[0].Message, "refuse") || !strings.Contains(w[0].Message, "up to 2048 routes") {
+		t.Errorf("findings = %+v", ev.Findings)
+	}
+}

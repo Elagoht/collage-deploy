@@ -116,10 +116,22 @@ func (p pattern) base() string {
 // moreSpecific reports whether a's segments rank before b's, read left to right,
 // as the router would try them: a host's redirect file is read top down, first
 // match wins, so the file has to list what the router prefers first.
+//
+// The ranks follow internal/router/radix.go: literal, then affixed, then a
+// bare placeholder, then the catch-all; and of two affixed placeholders the one
+// with the longer text around it first, as insertAffixed orders them, so
+// "/post-{id}.md" comes before "/post-{id}", which a host would otherwise let
+// take "/post-5.md".
 func moreSpecific(a, b pattern) bool {
 	for i := 0; i < len(a.segs) && i < len(b.segs); i++ {
-		if a.segs[i].kind != b.segs[i].kind {
-			return a.segs[i].kind < b.segs[i].kind
+		sa, sb := a.segs[i], b.segs[i]
+		if sa.kind != sb.kind {
+			return sa.kind < sb.kind
+		}
+		if sa.kind == segAffixed {
+			if la, lb := len(sa.prefix)+len(sa.suffix), len(sb.prefix)+len(sb.suffix); la != lb {
+				return la > lb
+			}
 		}
 	}
 	return len(a.segs) < len(b.segs)

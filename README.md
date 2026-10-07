@@ -31,8 +31,8 @@ with a warning naming it; the plugin never writes a rule that would redirect
 differently from the application.
 
 Redirects are written most specific first, as collage's router prefers them
-(literal segments, then placeholders with text around them, then placeholders,
-then catch-alls), since every host takes the first rule that matches.
+(literal segments, then placeholders with text around them, the longer text
+first, then placeholders, then catch-alls), since every host takes the first rule that matches.
 
 An existing `_headers`, `_redirects` or `vercel.json` in the output, whether the
 build wrote it or it was there before, is an error naming it, and nothing is

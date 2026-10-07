@@ -9,8 +9,8 @@ import (
 	"github.com/Elagoht/collage/pkg/collage"
 )
 
-// vercelRoutes is the most routes a Vercel deployment takes from vercel.json,
-// headers and redirects together.
+// vercelRoutes is the number of routes Vercel's documentation allows in one
+// deployment ("up to 2048 routes"); headers and redirects are counted together.
 const vercelRoutes = 2048
 
 // vercelConfig is the part of vercel.json the plugin writes. The field order is
@@ -59,11 +59,38 @@ func vercelLiteral(text string) string {
 	return b.String()
 }
 
+// vercelTo checks a destination's literal text. Vercel substitutes
+// placeholders in the path and query only and never in an absolute URL's
+// "scheme://authority", so a port there ("http://h:8080") is no placeholder. A
+// piece of text that follows a placeholder cannot begin with a scheme: the
+// word character after "}" is refused before this is asked.
 func vercelTo(text string) error {
+	if _, authority, ok := strings.Cut(text, "://"); ok && validScheme(text[:strings.Index(text, "://")]) {
+		rest := ""
+		if at := strings.IndexAny(authority, "/?#"); at >= 0 {
+			rest = authority[at:]
+		}
+		text = rest
+	}
 	if placeholderLike(text) {
 		return fmt.Errorf("to %q holds \":\" before a name, which Vercel reads as a placeholder", text)
 	}
 	return nil
+}
+
+// validScheme reports whether s is a URL scheme: a letter, then letters,
+// digits, "+", "-" or ".".
+func validScheme(s string) bool {
+	if s == "" || !(s[0] >= 'a' && s[0] <= 'z' || s[0] >= 'A' && s[0] <= 'Z') {
+		return false
+	}
+	for i := 1; i < len(s); i++ {
+		c := s[i]
+		if !(wordByte(c) && c != '_' || c == '+' || c == '-' || c == '.') {
+			return false
+		}
+	}
+	return true
 }
 
 // vercelSources are the sources a header rule is written at. Vercel matches a
@@ -141,7 +168,7 @@ func writeVercel(ev *collage.BuildFinishedEvent, rules []HeaderRule) error {
 		ev.Warn("", "deploy-unsupported-redirect", fmt.Sprintf("%d redirects cannot be written in vercel.json and are left out: %s", len(unwritable), strings.Join(unwritable, "; ")))
 	}
 	if n := len(cfg.Headers) + len(cfg.Redirects); n > vercelRoutes {
-		ev.Warn("", "deploy-limit", fmt.Sprintf("vercel.json holds %d header and redirect routes; Vercel takes at most %d per deployment and will refuse it", n, vercelRoutes))
+		ev.Warn("", "deploy-limit", fmt.Sprintf("vercel.json holds %d header and redirect routes; Vercel's documentation allows up to %d routes per deployment", n, vercelRoutes))
 	}
 	if len(cfg.Headers) == 0 && len(cfg.Redirects) == 0 {
 		return nil

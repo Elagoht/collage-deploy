@@ -134,3 +134,16 @@ func TestCleanBuildHasNoFindings(t *testing.T) {
 		t.Fatalf("findings = %+v", ev.Findings)
 	}
 }
+
+func TestControlCharacterInFilePathIsAnError(t *testing.T) {
+	ev := &collage.BuildFinishedEvent{OutDir: t.TempDir(), Files: []collage.BuiltFile{
+		{Path: "/a\nb/", Status: 200, Headers: http.Header{"A": {"1"}}},
+	}}
+	finishedWith(t, ev)
+	if len(ev.Findings) != 1 || ev.Findings[0].Level != collage.FindingError || ev.Findings[0].Rule != "deploy-control-character" || strings.ContainsAny(ev.Findings[0].Path, "\n") {
+		t.Fatalf("findings = %+v", ev.Findings)
+	}
+	if entries, _ := os.ReadDir(ev.OutDir); len(entries) != 0 {
+		t.Errorf("wrote %v", entries)
+	}
+}
