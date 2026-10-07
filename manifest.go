@@ -28,7 +28,7 @@ const ManifestFile = ".collage-deploy.json"
 // manifest is ManifestFile's content. The field order is the key order in the
 // file.
 type manifest struct {
-	Target string          `json:"target"`
+	Target Target          `json:"target"`
 	Files  []manifestEntry `json:"files"`
 }
 
@@ -155,7 +155,7 @@ func regularInside(dir, name string) bool {
 
 // record writes the manifest of what o wrote for target, or nothing when it
 // wrote nothing.
-func (o *output) record(target string) error {
+func (o *output) record(target Target) error {
 	if len(o.wrote) == 0 {
 		return nil
 	}

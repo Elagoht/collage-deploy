@@ -177,7 +177,15 @@ header it was answered with but the implied `Content-Type`.
   plugin warns that nothing is written and the build goes on; the files the last
   export wrote for a target, unchanged since, are removed with the manifest, so
   they are not deployed with it, and the warning says so. Any other value
-  stops the application from starting.
+  stops the application from starting. In Go it is a `deploy.Target`, with a
+  constant for each: `TargetNetlify`, `TargetCloudflare`, `TargetVercel`,
+  `TargetGitHubPages`, and `TargetNone` for empty.
 
 A control character in a redirect or a header value is an error that fails the
 build: it would split a line of the host's file and write a rule nobody declared.
+
+## Changes
+
+### v0.1.1
+
+- `Config.Target` is a `deploy.Target`, a string type with a constant per host, and `Targets` is a `[]deploy.Target`, so the editor's schema can list the targets. The JSON configuration is unchanged. A Go caller passing a literal (`Target: "netlify"`) needs no change; one passing a `string` variable converts it with `deploy.Target(s)`.

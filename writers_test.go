@@ -71,7 +71,7 @@ func fixture(dir string) *collage.BuildFinishedEvent {
 	}
 }
 
-func run(t *testing.T, target string, ev *collage.BuildFinishedEvent) {
+func run(t *testing.T, target deploy.Target, ev *collage.BuildFinishedEvent) {
 	t.Helper()
 	if err := deploy.NewWith(deploy.Config{Target: target}).OnBuildFinished(context.Background(), ev); err != nil {
 		t.Fatal(err)
@@ -99,10 +99,10 @@ func tree(t *testing.T, dir string) map[string][]byte {
 
 // golden compares what the target wrote under out with testdata/golden/<target>,
 // byte for byte, and rewrites the golden files under -update.
-func golden(t *testing.T, target, out string) {
+func golden(t *testing.T, target deploy.Target, out string) {
 	t.Helper()
 	got := tree(t, out)
-	dir := filepath.Join("testdata", "golden", target)
+	dir := filepath.Join("testdata", "golden", string(target))
 	if *update {
 		if err := os.RemoveAll(dir); err != nil {
 			t.Fatal(err)
@@ -154,7 +154,7 @@ func noErrors(t *testing.T, ev *collage.BuildFinishedEvent) {
 
 func TestGolden(t *testing.T) {
 	for _, target := range deploy.Targets {
-		t.Run(target, func(t *testing.T) {
+		t.Run(string(target), func(t *testing.T) {
 			dir := t.TempDir()
 			ev := fixture(dir)
 			run(t, target, ev)
@@ -257,8 +257,9 @@ func TestGitHubPagesWarnings(t *testing.T) {
 
 func TestExistingFilesAreRefused(t *testing.T) {
 	cases := []struct {
-		target, name string
-		built        bool
+		target deploy.Target
+		name   string
+		built  bool
 	}{
 		{"netlify", "_headers", false},
 		{"netlify", "_redirects", true},
@@ -398,7 +399,7 @@ func TestPatternTranslation(t *testing.T) {
 		{"/old/", "/new", "/old/ /new 301\n", "/old/ /new 301\n/old /new 301\n", `"/old/" -> "/new"`},
 	}
 	for _, c := range cases {
-		for target, want := range map[string]string{"netlify": c.netlify, "cloudflare": c.cloudflare, "vercel": c.vercel} {
+		for target, want := range map[deploy.Target]string{"netlify": c.netlify, "cloudflare": c.cloudflare, "vercel": c.vercel} {
 			dir := t.TempDir()
 			ev := &collage.BuildFinishedEvent{OutDir: dir, Redirects: []collage.BuiltRedirect{{From: c.from, To: c.to, Status: 301, Source: "test"}}}
 			run(t, target, ev)
@@ -664,7 +665,7 @@ const manifestName = ".collage-deploy.json"
 // replaced; the result is what one build into an empty directory writes.
 func TestReExportIntoTheSameDirectory(t *testing.T) {
 	for _, target := range deploy.Targets {
-		t.Run(target, func(t *testing.T) {
+		t.Run(string(target), func(t *testing.T) {
 			dir := t.TempDir()
 			run(t, target, fixture(dir))
 			first := tree(t, dir)

@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -53,8 +54,43 @@ func TestKnownTargetsAndConfigOverride(t *testing.T) {
 	}
 }
 
+// TestTargetJSON: Target is a string in the configuration as it was before it
+// had a type of its own — each name decodes to its constant, through
+// collage.json as well as encoding/json, and encodes back to the same name.
+func TestTargetJSON(t *testing.T) {
+	for name, want := range map[string]deploy.Target{
+		`""`:             deploy.TargetNone,
+		`"netlify"`:      deploy.TargetNetlify,
+		`"cloudflare"`:   deploy.TargetCloudflare,
+		`"vercel"`:       deploy.TargetVercel,
+		`"github-pages"`: deploy.TargetGitHubPages,
+	} {
+		raw := `{"target":` + name + `}`
+		var cfg deploy.Config
+		if err := json.Unmarshal([]byte(raw), &cfg); err != nil {
+			t.Fatalf("%s: %v", raw, err)
+		}
+		if cfg.Target != want {
+			t.Errorf("%s: Target = %q, want %q", raw, cfg.Target, want)
+		}
+		back, err := json.Marshal(cfg)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if string(back) != raw {
+			t.Errorf("%s encodes as %s", raw, back)
+		}
+		if err := newApp(t, deploy.New(), map[string]json.RawMessage{deploy.Name: json.RawMessage(raw)}); err != nil {
+			t.Errorf("%s in collage.json: %v", raw, err)
+		}
+	}
+	if !slices.Equal(deploy.Targets, []deploy.Target{"netlify", "cloudflare", "vercel", "github-pages"}) {
+		t.Errorf("Targets = %q", deploy.Targets)
+	}
+}
+
 func TestVersion(t *testing.T) {
-	if v := deploy.New().Version(); v != "0.1.0" {
+	if v := deploy.New().Version(); v != "0.1.1" {
 		t.Errorf("Version = %q", v)
 	}
 	if deploy.New().Name() != "elagoht/deploy" {

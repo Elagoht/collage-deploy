@@ -9,14 +9,14 @@
     "properties": {
       "target": {
         "type": "string",
+        "description": "Target is the host to write for: \"netlify\", \"cloudflare\", \"vercel\" or \"github-pages\". Empty writes nothing.",
         "enum": [
           "",
-          "netlify",
           "cloudflare",
-          "vercel",
-          "github-pages"
-        ],
-        "description": "Target is the host to write for: \"netlify\", \"cloudflare\", \"vercel\" or \"github-pages\". Empty writes nothing."
+          "github-pages",
+          "netlify",
+          "vercel"
+        ]
       }
     },
     "additionalProperties": false

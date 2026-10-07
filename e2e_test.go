@@ -25,14 +25,14 @@ import (
 // the site being served over HTTPS, HSTS, and collage-redirects' rules, one of
 // them a prefix. The about page is registered as "/about", collage's default
 // spelling, and served from about/index.html at "/about/".
-func e2eSite(t *testing.T, target string) (string, *collage.BuildReport) {
+func e2eSite(t *testing.T, target deploy.Target) (string, *collage.BuildReport) {
 	t.Helper()
 	out := t.TempDir()
 	return out, e2eSiteIn(t, target, out)
 }
 
 // e2eSiteIn builds e2eSite's site for target into out.
-func e2eSiteIn(t *testing.T, target, out string) *collage.BuildReport {
+func e2eSiteIn(t *testing.T, target deploy.Target, out string) *collage.BuildReport {
 	t.Helper()
 	templates := fstest.MapFS{
 		"t/home.html":  {Data: []byte(`<html><body><h1>Home</h1><script nonce="{{cspNonce}}">1</script></body></html>`)},
@@ -107,7 +107,7 @@ func e2eSiteIn(t *testing.T, target, out string) *collage.BuildReport {
 // succeeds and writes what the first did.
 func TestEndToEnd_ExportTwiceIntoOneDirectory(t *testing.T) {
 	for _, target := range deploy.Targets {
-		t.Run(target, func(t *testing.T) {
+		t.Run(string(target), func(t *testing.T) {
 			out, _ := e2eSite(t, target)
 			first := tree(t, out)
 			e2eSiteIn(t, target, out)
@@ -174,8 +174,8 @@ func assertNoNonceCSP(t *testing.T, name, body string) {
 }
 
 func TestEndToEnd_NetlifyAndCloudflare(t *testing.T) {
-	for _, target := range []string{"netlify", "cloudflare"} {
-		t.Run(target, func(t *testing.T) {
+	for _, target := range []deploy.Target{deploy.TargetNetlify, deploy.TargetCloudflare} {
+		t.Run(string(target), func(t *testing.T) {
 			out, report := e2eSite(t, target)
 			if _, err := os.Stat(filepath.Join(out, "static", "app.3f9a1c2e.css")); err != nil {
 				t.Errorf("the fingerprinted file was not written: %v", err)

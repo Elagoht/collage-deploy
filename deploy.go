@@ -25,14 +25,26 @@ import (
 // Name is the plugin's name, and the key its configuration is found under.
 const Name = "elagoht/deploy"
 
+// Target is a host a build can be written for, as the configuration names it.
+type Target string
+
+// The targets. TargetNone, the empty string, writes nothing for a host.
+const (
+	TargetNone        Target = ""
+	TargetNetlify     Target = "netlify"
+	TargetCloudflare  Target = "cloudflare"
+	TargetVercel      Target = "vercel"
+	TargetGitHubPages Target = "github-pages"
+)
+
 // Targets are the hosts a build can be written for.
-var Targets = []string{"netlify", "cloudflare", "vercel", "github-pages"}
+var Targets = []Target{TargetNetlify, TargetCloudflare, TargetVercel, TargetGitHubPages}
 
 // Config configures the plugin.
 type Config struct {
 	// Target is the host to write for: "netlify", "cloudflare", "vercel" or
 	// "github-pages". Empty writes nothing.
-	Target string `json:"target"`
+	Target Target `json:"target"`
 }
 
 // Plugin writes a build's headers and redirects in a host's form.
@@ -49,7 +61,7 @@ func New() *Plugin { return &Plugin{} }
 func NewWith(cfg Config) *Plugin { return &Plugin{cfg: cfg} }
 
 func (p *Plugin) Name() string                   { return Name }
-func (p *Plugin) Version() string                { return "0.1.0" }
+func (p *Plugin) Version() string                { return "0.1.1" }
 func (p *Plugin) Shutdown(context.Context) error { return nil }
 
 var (
@@ -63,7 +75,7 @@ func (p *Plugin) Init(_ context.Context, host collage.Host) error {
 	if err != nil {
 		return err
 	}
-	if cfg.Target != "" && !slices.Contains(Targets, cfg.Target) {
+	if cfg.Target != TargetNone && !slices.Contains(Targets, cfg.Target) {
 		return fmt.Errorf("elagoht/deploy: unknown target %q; want netlify, cloudflare, vercel or github-pages", cfg.Target)
 	}
 	p.cfg = cfg
@@ -72,7 +84,7 @@ func (p *Plugin) Init(_ context.Context, host collage.Host) error {
 
 // OnBuildFinished writes the build's headers and redirects for the target.
 func (p *Plugin) OnBuildFinished(_ context.Context, ev *collage.BuildFinishedEvent) error {
-	if p.cfg.Target == "" {
+	if p.cfg.Target == TargetNone {
 		return p.noTarget(ev)
 	}
 	if !checkText(ev) {
@@ -127,13 +139,13 @@ func (p *Plugin) write(ev *collage.BuildFinishedEvent) error {
 // writeTarget hands the build to the target's writer.
 func (p *Plugin) writeTarget(ev *collage.BuildFinishedEvent, out *output) error {
 	switch p.cfg.Target {
-	case "netlify":
+	case TargetNetlify:
 		return writeLines(ev, out, Compact(ev.OutDir, ev.Files), netlify)
-	case "cloudflare":
+	case TargetCloudflare:
 		return writeLines(ev, out, Compact(ev.OutDir, ev.Files), cloudflare)
-	case "vercel":
+	case TargetVercel:
 		return writeVercel(ev, out, Compact(ev.OutDir, ev.Files))
-	case "github-pages":
+	case TargetGitHubPages:
 		return writeGitHubPages(ev, out)
 	}
 	return fmt.Errorf("elagoht/deploy: unknown target %q", p.cfg.Target)
