@@ -84,18 +84,18 @@ func builtSource(ev *collage.BuildFinishedEvent, name string) (string, bool) {
 func create(dir, name string, data []byte) error {
 	path := filepath.Join(dir, filepath.FromSlash(name))
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return fmt.Errorf("elagoht/deploy: %w", err)
+		return fmt.Errorf("deploy: %w", err)
 	}
 	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
 	if err != nil {
-		return fmt.Errorf("elagoht/deploy: %w", err)
+		return fmt.Errorf("deploy: %w", err)
 	}
 	if _, err := f.Write(data); err != nil {
 		f.Close()
-		return fmt.Errorf("elagoht/deploy: %w", err)
+		return fmt.Errorf("deploy: %w", err)
 	}
 	if err := f.Close(); err != nil {
-		return fmt.Errorf("elagoht/deploy: %w", err)
+		return fmt.Errorf("deploy: %w", err)
 	}
 	return nil
 }

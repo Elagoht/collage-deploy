@@ -41,7 +41,7 @@ func fixture(dir string) *collage.BuildFinishedEvent {
 		f := ok(path,
 			"X-Content-Type-Options", nosniff, "Referrer-Policy", referrer,
 			"Content-Type", html, "Cache-Control", noCache, "X-Frame-Options", frame, "Content-Security-Policy", csp)
-		f.Kind = "page"
+		f.Kind = collage.BuiltPage
 		f.File = filepath.Join(dir, filepath.FromSlash(strings.TrimPrefix(path, "/")), "index.html")
 		return f
 	}
@@ -59,7 +59,7 @@ func fixture(dir string) *collage.BuildFinishedEvent {
 			ok("/feed.xml", "X-Content-Type-Options", nosniff, "Referrer-Policy", referrer,
 				"Content-Type", "application/rss+xml", "Cache-Control", noCache,
 				"Link", "</>; rel=alternate", "Link", "</feed.xml>; rel=self"),
-			{Kind: "page", Path: "/404.html"},
+			{Kind: collage.BuiltPage, Path: "/404.html"},
 		},
 		Redirects: []collage.BuiltRedirect{
 			{From: "/old", To: "/new", Status: 301, Source: "page:new"},
@@ -73,7 +73,7 @@ func fixture(dir string) *collage.BuildFinishedEvent {
 
 func run(t *testing.T, target deploy.Target, ev *collage.BuildFinishedEvent) {
 	t.Helper()
-	if err := deploy.NewWith(deploy.Config{Target: target}).OnBuildFinished(context.Background(), ev); err != nil {
+	if err := deploy.New(deploy.Options{Target: target}).OnBuildFinished(context.Background(), ev); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -282,7 +282,7 @@ func TestExistingFilesAreRefused(t *testing.T) {
 			}
 			ev := fixture(dir)
 			if c.built {
-				ev.Files = append(ev.Files, collage.BuiltFile{Kind: "document", Name: "hosts", Path: "/" + c.name})
+				ev.Files = append(ev.Files, collage.BuiltFile{Kind: collage.BuiltDocument, Name: "hosts", Path: "/" + c.name})
 			}
 			run(t, c.target, ev)
 			errs := findings(ev, "deploy-existing-file")
@@ -866,7 +866,7 @@ func TestABuiltManifestNameIsRefused(t *testing.T) {
 		t.Fatal(err)
 	}
 	ev := fixture(dir)
-	ev.Files = append(ev.Files, collage.BuiltFile{Kind: "document", Name: "mine", Path: "/" + manifestName, File: filepath.Join(dir, manifestName)})
+	ev.Files = append(ev.Files, collage.BuiltFile{Kind: collage.BuiltDocument, Name: "mine", Path: "/" + manifestName, File: filepath.Join(dir, manifestName)})
 	run(t, "netlify", ev)
 	if errs := findings(ev, "deploy-existing-file"); len(errs) != 1 || !strings.Contains(errs[0].Message, manifestName) || !strings.Contains(errs[0].Message, `document "mine"`) {
 		t.Fatalf("findings = %+v", ev.Findings)
@@ -917,7 +917,7 @@ func TestNoTargetRemovesTheLastExportsFiles(t *testing.T) {
 		t.Fatal(err)
 	}
 	ev := fixture(dir)
-	if err := deploy.New().OnBuildFinished(context.Background(), ev); err != nil {
+	if err := deploy.New(deploy.Options{}).OnBuildFinished(context.Background(), ev); err != nil {
 		t.Fatal(err)
 	}
 	got := tree(t, dir)

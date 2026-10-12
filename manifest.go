@@ -68,7 +68,7 @@ func readManifest(dir string) (manifest, error) {
 		}
 		return manifest{}, fmt.Errorf("%w: %v", errNotManifest, err)
 	}
-	if !slices.Contains(Targets, m.Target) {
+	if !slices.Contains(targets, m.Target) {
 		return manifest{}, fmt.Errorf("%w: target %q", errNotManifest, m.Target)
 	}
 	return m, nil
@@ -114,7 +114,7 @@ func (m manifest) release(dir string, built map[string]bool) error {
 			continue
 		}
 		if err := os.Remove(path); err != nil {
-			return fmt.Errorf("elagoht/deploy: %w", err)
+			return fmt.Errorf("deploy: %w", err)
 		}
 		for parent := filepath.Dir(path); parent != dir && strings.HasPrefix(parent, dir); parent = filepath.Dir(parent) {
 			if os.Remove(parent) != nil {
@@ -123,7 +123,7 @@ func (m manifest) release(dir string, built map[string]bool) error {
 		}
 	}
 	if err := os.Remove(filepath.Join(dir, ManifestFile)); err != nil && !errors.Is(err, fs.ErrNotExist) {
-		return fmt.Errorf("elagoht/deploy: %w", err)
+		return fmt.Errorf("deploy: %w", err)
 	}
 	return nil
 }
@@ -169,7 +169,7 @@ func (o *output) record(target Target) error {
 	enc.SetEscapeHTML(false)
 	enc.SetIndent("", "  ")
 	if err := enc.Encode(m); err != nil {
-		return fmt.Errorf("elagoht/deploy: %s: %w", ManifestFile, err)
+		return fmt.Errorf("deploy: %s: %w", ManifestFile, err)
 	}
 	return create(o.dir, ManifestFile, buf.Bytes())
 }

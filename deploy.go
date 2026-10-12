@@ -2,7 +2,7 @@
 // and redirects into the configuration files a static host reads.
 //
 //	app, err := collage.New(&collage.Config{
-//		Plugins: []collage.Plugin{deploy.NewWith(deploy.Config{Target: "netlify"})},
+//		Plugins: []collage.Plugin{deploy.New(deploy.Options{Target: "netlify"})},
 //	})
 //
 // The target is one of netlify, cloudflare, vercel and github-pages. With none
@@ -37,11 +37,11 @@ const (
 	TargetGitHubPages Target = "github-pages"
 )
 
-// Targets are the hosts a build can be written for.
-var Targets = []Target{TargetNetlify, TargetCloudflare, TargetVercel, TargetGitHubPages}
+// targets are the hosts a build can be written for.
+var targets = []Target{TargetNetlify, TargetCloudflare, TargetVercel, TargetGitHubPages}
 
-// Config configures the plugin.
-type Config struct {
+// Options configures the plugin.
+type Options struct {
 	// Target is the host to write for: "netlify", "cloudflare", "vercel" or
 	// "github-pages". Empty writes nothing.
 	Target Target `json:"target"`
@@ -49,19 +49,16 @@ type Config struct {
 
 // Plugin writes a build's headers and redirects in a host's form.
 type Plugin struct {
-	cfg Config
+	cfg Options
 }
 
-// New returns a plugin with no target, which the application's own configuration
-// is then decoded over.
-func New() *Plugin { return &Plugin{} }
-
-// NewWith returns a plugin with cfg as its starting point, which the application's
-// own configuration is then decoded over.
-func NewWith(cfg Config) *Plugin { return &Plugin{cfg: cfg} }
+// New returns a plugin with opts as its starting point, which the application's
+// own configuration is then decoded over. The zero Options has no target: a
+// build warns that nothing is written for a host.
+func New(opts Options) *Plugin { return &Plugin{cfg: opts} }
 
 func (p *Plugin) Name() string                   { return Name }
-func (p *Plugin) Version() string                { return "0.1.2" }
+func (p *Plugin) Version() string                { return "0.2.0" }
 func (p *Plugin) Shutdown(context.Context) error { return nil }
 
 var (
@@ -75,8 +72,8 @@ func (p *Plugin) Init(_ context.Context, host collage.Host) error {
 	if err != nil {
 		return err
 	}
-	if cfg.Target != TargetNone && !slices.Contains(Targets, cfg.Target) {
-		return fmt.Errorf("elagoht/deploy: unknown target %q; want netlify, cloudflare, vercel or github-pages", cfg.Target)
+	if cfg.Target != TargetNone && !slices.Contains(targets, cfg.Target) {
+		return fmt.Errorf("deploy: unknown target %q; want netlify, cloudflare, vercel or github-pages", cfg.Target)
 	}
 	p.cfg = cfg
 	return nil
@@ -117,7 +114,7 @@ func (p *Plugin) noTarget(ev *collage.BuildFinishedEvent) error {
 // write hands the build to the target's writer.
 func (p *Plugin) write(ev *collage.BuildFinishedEvent) error {
 	if ev.OutDir == "" {
-		return fmt.Errorf("elagoht/deploy: the build names no output directory to write into")
+		return fmt.Errorf("deploy: the build names no output directory to write into")
 	}
 	previous, ok := previousManifest(ev)
 	if !ok {
@@ -140,15 +137,15 @@ func (p *Plugin) write(ev *collage.BuildFinishedEvent) error {
 func (p *Plugin) writeTarget(ev *collage.BuildFinishedEvent, out *output) error {
 	switch p.cfg.Target {
 	case TargetNetlify:
-		return writeLines(ev, out, Compact(ev.OutDir, ev.Files), netlify)
+		return writeLines(ev, out, compact(ev.OutDir, ev.Files), netlify)
 	case TargetCloudflare:
-		return writeLines(ev, out, Compact(ev.OutDir, ev.Files), cloudflare)
+		return writeLines(ev, out, compact(ev.OutDir, ev.Files), cloudflare)
 	case TargetVercel:
-		return writeVercel(ev, out, Compact(ev.OutDir, ev.Files))
+		return writeVercel(ev, out, compact(ev.OutDir, ev.Files))
 	case TargetGitHubPages:
 		return writeGitHubPages(ev, out)
 	}
-	return fmt.Errorf("elagoht/deploy: unknown target %q", p.cfg.Target)
+	return fmt.Errorf("deploy: unknown target %q", p.cfg.Target)
 }
 
 // checkText reports, as an error naming where it was found, any control character
@@ -167,7 +164,7 @@ func checkText(ev *collage.BuildFinishedEvent) bool {
 	for _, f := range ev.Files {
 		// A file's served path, from its path or its file on disk, is a header
 		// rule's path line in _headers.
-		if served := ServedAt(ev.OutDir, f); hasControl(f.Path) || hasControl(served) {
+		if served := servedAt(ev.OutDir, f); hasControl(f.Path) || hasControl(served) {
 			bad := f.Path
 			if !hasControl(bad) {
 				bad = served

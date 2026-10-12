@@ -3,6 +3,7 @@
   "name": "elagoht/deploy",
   "description": "A collage plugin that turns a static build's captured headers and redirects into the configuration files a static host reads.",
   "repository": "https://github.com/Elagoht/collage-deploy",
+  "setup": "Name the static host in plugins-config.json — `\"target\": \"netlify\"` (or `cloudflare`, `vercel`, `github-pages`) — or in Go, `deploy.New(deploy.Options{Target: deploy.TargetNetlify})`. Without a target an export warns and writes nothing for a host.",
   "config": {
     "type": "object",
     "description": "A collage plugin that turns a static build's captured headers and redirects into the configuration files a static host reads.",

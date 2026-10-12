@@ -10,46 +10,45 @@ import (
 	"strconv"
 	"strings"
 	"testing"
-	"testing/fstest"
 
 	deploy "github.com/Elagoht/collage-deploy"
 	"github.com/Elagoht/collage/pkg/collage"
+	"github.com/Elagoht/collage/pkg/collagetest"
 )
 
 func newApp(t *testing.T, p *deploy.Plugin, config map[string]json.RawMessage) error {
 	t.Helper()
-	app, err := collage.New(&collage.Config{
-		Server:       collage.ServerConfig{Host: "localhost", Port: 3000},
-		Template:     collage.TemplateConfig{FS: fstest.MapFS{"t/p.html": {Data: []byte(`<p>page</p>`)}}, Root: "t"},
-		Plugins:      []collage.Plugin{p},
-		PluginConfig: config,
-	})
-	if err != nil {
-		return err
+	options := []collagetest.SiteOption{collagetest.WithPlugins(p)}
+	for name, raw := range config {
+		options = append(options, collagetest.WithPluginConfig(name, string(raw)))
 	}
-	return app.Start()
+	_, err := collagetest.TrySite(t, options...)
+	return err
 }
 
 func TestUnknownTargetFailsInit(t *testing.T) {
-	err := newApp(t, deploy.New(), map[string]json.RawMessage{deploy.Name: json.RawMessage(`{"target":"heroku"}`)})
-	if err == nil || !strings.Contains(err.Error(), `unknown target "heroku"; want netlify, cloudflare, vercel or github-pages`) {
+	err := newApp(t, deploy.New(deploy.Options{}), map[string]json.RawMessage{deploy.Name: json.RawMessage(`{"target":"heroku"}`)})
+	if err == nil || !strings.Contains(err.Error(), `deploy: unknown target "heroku"; want netlify, cloudflare, vercel or github-pages`) {
 		t.Fatalf("err = %v", err)
 	}
-	if err := newApp(t, deploy.NewWith(deploy.Config{Target: "nope"}), nil); err == nil {
+	if strings.Contains(err.Error(), "elagoht/deploy: unknown") {
+		t.Errorf("err = %v, want the plugin's own message to begin deploy:", err)
+	}
+	if err := newApp(t, deploy.New(deploy.Options{Target: "nope"}), nil); err == nil {
 		t.Error("an unknown target set in Go was accepted")
 	}
 }
 
 func TestKnownTargetsAndConfigOverride(t *testing.T) {
 	for _, target := range deploy.Targets {
-		if err := newApp(t, deploy.NewWith(deploy.Config{Target: target}), nil); err != nil {
+		if err := newApp(t, deploy.New(deploy.Options{Target: target}), nil); err != nil {
 			t.Errorf("%s: %v", target, err)
 		}
 	}
-	if err := newApp(t, deploy.NewWith(deploy.Config{Target: "nope"}), map[string]json.RawMessage{deploy.Name: json.RawMessage(`{"target":"vercel"}`)}); err != nil {
+	if err := newApp(t, deploy.New(deploy.Options{Target: "nope"}), map[string]json.RawMessage{deploy.Name: json.RawMessage(`{"target":"vercel"}`)}); err != nil {
 		t.Errorf("configuration should override the Go value: %v", err)
 	}
-	if err := newApp(t, deploy.New(), nil); err != nil {
+	if err := newApp(t, deploy.New(deploy.Options{}), nil); err != nil {
 		t.Errorf("no target is allowed: %v", err)
 	}
 }
@@ -66,7 +65,7 @@ func TestTargetJSON(t *testing.T) {
 		`"github-pages"`: deploy.TargetGitHubPages,
 	} {
 		raw := `{"target":` + name + `}`
-		var cfg deploy.Config
+		var cfg deploy.Options
 		if err := json.Unmarshal([]byte(raw), &cfg); err != nil {
 			t.Fatalf("%s: %v", raw, err)
 		}
@@ -80,7 +79,7 @@ func TestTargetJSON(t *testing.T) {
 		if string(back) != raw {
 			t.Errorf("%s encodes as %s", raw, back)
 		}
-		if err := newApp(t, deploy.New(), map[string]json.RawMessage{deploy.Name: json.RawMessage(raw)}); err != nil {
+		if err := newApp(t, deploy.New(deploy.Options{}), map[string]json.RawMessage{deploy.Name: json.RawMessage(raw)}); err != nil {
 			t.Errorf("%s in collage.json: %v", raw, err)
 		}
 	}
@@ -90,10 +89,10 @@ func TestTargetJSON(t *testing.T) {
 }
 
 func TestVersion(t *testing.T) {
-	if v := deploy.New().Version(); v != "0.1.2" {
+	if v := deploy.New(deploy.Options{}).Version(); v != "0.2.0" {
 		t.Errorf("Version = %q", v)
 	}
-	if deploy.New().Name() != "elagoht/deploy" {
+	if deploy.New(deploy.Options{}).Name() != "elagoht/deploy" {
 		t.Error("Name")
 	}
 }
@@ -105,7 +104,7 @@ func TestEmptyTargetWarnsOnce(t *testing.T) {
 		Files:     []collage.BuiltFile{{Path: "/", Status: 200, Headers: http.Header{"A": {"1"}}}},
 		Redirects: []collage.BuiltRedirect{{From: "/a", To: "/b", Status: 301}},
 	}
-	if err := deploy.New().OnBuildFinished(context.Background(), ev); err != nil {
+	if err := deploy.New(deploy.Options{}).OnBuildFinished(context.Background(), ev); err != nil {
 		t.Fatal(err)
 	}
 	if entries, err := os.ReadDir(dir); err != nil || len(entries) != 0 {
@@ -118,7 +117,7 @@ func TestEmptyTargetWarnsOnce(t *testing.T) {
 
 func finishedWith(t *testing.T, ev *collage.BuildFinishedEvent) {
 	t.Helper()
-	if err := deploy.NewWith(deploy.Config{Target: "netlify"}).OnBuildFinished(context.Background(), ev); err != nil {
+	if err := deploy.New(deploy.Options{Target: "netlify"}).OnBuildFinished(context.Background(), ev); err != nil {
 		t.Fatal(err)
 	}
 }

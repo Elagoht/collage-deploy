@@ -52,7 +52,7 @@ func e2eSiteIn(t *testing.T, target deploy.Target, out string) *collage.BuildRep
 				{From: "/old-pricing", To: "/about", Status: 301},
 				{From: "/blog/*", To: "/posts/:splat", Status: 301},
 			}}),
-			deploy.NewWith(deploy.Config{Target: target}),
+			deploy.New(deploy.Options{Target: target}),
 		},
 	})
 	if err != nil {

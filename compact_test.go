@@ -452,7 +452,7 @@ func TestExpandReproducesEveryFileProperty(t *testing.T) {
 // trailing slash — written to its directory's index.html under out.
 func page(out, path string, kv ...string) collage.BuiltFile {
 	f := ok(path, kv...)
-	f.Kind = "page"
+	f.Kind = collage.BuiltPage
 	f.File = filepath.Join(out, filepath.FromSlash(strings.TrimPrefix(path, "/")), "index.html")
 	return f
 }

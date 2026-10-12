@@ -90,7 +90,7 @@ func lineTo(text string) error {
 }
 
 // writeLines writes _headers and _redirects for h.
-func writeLines(ev *collage.BuildFinishedEvent, out *output, rules []HeaderRule, h lineHost) error {
+func writeLines(ev *collage.BuildFinishedEvent, out *output, rules []headerRule, h lineHost) error {
 	if !claim(ev, "_headers", "_redirects") {
 		return nil
 	}
@@ -111,7 +111,7 @@ func writeLines(ev *collage.BuildFinishedEvent, out *output, rules []HeaderRule,
 
 // headers is the _headers file: a block per rule, the path then each header
 // indented, one line per value, a blank line between blocks.
-func (h lineHost) headers(ev *collage.BuildFinishedEvent, rules []HeaderRule) string {
+func (h lineHost) headers(ev *collage.BuildFinishedEvent, rules []headerRule) string {
 	var blocks []string
 	var unwritable, long, over []string
 	for _, r := range rules {
@@ -171,7 +171,7 @@ type line struct {
 func (h lineHost) redirects(ev *collage.BuildFinishedEvent) string {
 	served := map[string]bool{}
 	for _, f := range ev.Files {
-		served[ServedAt(ev.OutDir, f)] = true
+		served[servedAt(ev.OutDir, f)] = true
 	}
 	var lines []line
 	var gone, unwritable, downgraded []string

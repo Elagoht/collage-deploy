@@ -6,11 +6,11 @@ security headers survive being exported.
 
 ```go
 app, err := collage.New(&collage.Config{
-	Plugins: []collage.Plugin{deploy.NewWith(deploy.Config{Target: "netlify"})},
+	Plugins: []collage.Plugin{deploy.New(deploy.Options{Target: "netlify"})},
 })
 ```
 
-Requires collage v0.52.0 or later.
+Requires collage v0.61.0 or later.
 
 ## Targets
 
@@ -85,7 +85,7 @@ Checked against each host's documentation on 2026-10-07.
   Netlify CLI's local emulation (`headersForPath` in
   [src/utils/headers.ts](https://github.com/netlify/cli/blob/main/src/utils/headers.ts))
   applies every matching rule, a later one replacing a header an earlier one set,
-  as `Expand` models it. Compaction never sets one header name in two rules that
+  as the plugin's own model of the rules, which its tests check every export against, does. Compaction never sets one header name in two rules that
   match one captured file, so concatenating and replacing give the same headers.
 
 **Cloudflare Pages**
@@ -164,7 +164,7 @@ case or spaces around `;`. The build machine's own mime tables, which differ fro
 one system to the next, are never consulted, so the rules are the same wherever
 the site is built. A `Content-Type` that differs (`/feed.xml` answered
 `application/rss+xml`, or `application/xml`), or one on a file with no extension,
-keeps its own rule. `Expand` models the rules alone, so it gives such a file every
+keeps its own rule. The plugin's model of the rules reads the rules alone, so it gives such a file every
 header it was answered with but the implied `Content-Type`.
 
 ## Configuration
@@ -185,6 +185,18 @@ A control character in a redirect or a header value is an error that fails the
 build: it would split a line of the host's file and write a rule nobody declared.
 
 ## Changes
+
+### v0.2.0
+
+The v1 conventions; requires collage v0.61.0. The JSON configuration is unchanged.
+
+| Before | Now |
+| --- | --- |
+| `deploy.New()`, `deploy.NewWith(cfg)` | `deploy.New(opts)` — one constructor; `deploy.New(deploy.Options{})` has no target |
+| `deploy.Config` | `deploy.Options` |
+| `deploy.Targets` | unexported; the `Target*` constants stay |
+| `Compact`, `Expand`, `HeaderRule`, `ServedAt`, `ServedPath`, `ImpliedByExtension` | unexported: they were internals exported for the plugin's own tests |
+| errors begin `elagoht/deploy:` | they begin `deploy:` |
 
 ### v0.1.1
 

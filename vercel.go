@@ -113,13 +113,13 @@ func vercelSources(path string, served map[string]bool) []string {
 }
 
 // writeVercel writes vercel.json.
-func writeVercel(ev *collage.BuildFinishedEvent, out *output, rules []HeaderRule) error {
+func writeVercel(ev *collage.BuildFinishedEvent, out *output, rules []headerRule) error {
 	if !claim(ev, "vercel.json") {
 		return nil
 	}
 	served := map[string]bool{}
 	for _, f := range ev.Files {
-		served[ServedAt(ev.OutDir, f)] = true
+		served[servedAt(ev.OutDir, f)] = true
 	}
 	var cfg vercelConfig
 	for _, r := range rules {
@@ -181,7 +181,7 @@ func writeVercel(ev *collage.BuildFinishedEvent, out *output, rules []HeaderRule
 	enc.SetEscapeHTML(false)
 	enc.SetIndent("", "  ")
 	if err := enc.Encode(cfg); err != nil {
-		return fmt.Errorf("elagoht/deploy: vercel.json: %w", err)
+		return fmt.Errorf("deploy: vercel.json: %w", err)
 	}
 	return out.create("vercel.json", buf.Bytes())
 }

@@ -11,20 +11,20 @@ import (
 	"github.com/Elagoht/collage/pkg/collage"
 )
 
-// HeaderRule is a set of headers a host applies to every path its Path matches:
+// headerRule is a set of headers a host applies to every path its Path matches:
 // "/*" for every path, "/static/*" for everything under /static/, "/a/" for that
 // one path.
-type HeaderRule struct {
+type headerRule struct {
 	Path    string
 	Headers http.Header
 }
 
-// ServedPath returns the path a host serves a file at, spelled by its path
+// servedPath returns the path a host serves a file at, spelled by its path
 // under the output: a leading slash, and "index.html" dropped, so
 // "blog/index.html" is "/blog/". It is not a page's BuiltFile.Path, which is the
 // route as registered — "/blog" for blog/index.html unless the application uses
-// a trailing slash; ServedAt derives the served path from the file instead.
-func ServedPath(path string) string {
+// a trailing slash; servedAt derives the served path from the file instead.
+func servedPath(path string) string {
 	if !strings.HasPrefix(path, "/") {
 		path = "/" + path
 	}
@@ -34,17 +34,17 @@ func ServedPath(path string) string {
 	return path
 }
 
-// ServedAt returns the path a host serves f at, from where the build wrote it:
+// servedAt returns the path a host serves f at, from where the build wrote it:
 // its File under outDir, so a page registered as "/about" and written to
 // about/index.html is "/about/". A file with no File, or outside outDir, falls
-// back to ServedPath of its Path.
-func ServedAt(outDir string, f collage.BuiltFile) string {
+// back to servedPath of its Path.
+func servedAt(outDir string, f collage.BuiltFile) string {
 	if f.File != "" && outDir != "" {
 		if rel, err := filepath.Rel(outDir, f.File); err == nil && filepath.IsLocal(rel) {
-			return ServedPath(filepath.ToSlash(rel))
+			return servedPath(filepath.ToSlash(rel))
 		}
 	}
-	return ServedPath(f.Path)
+	return servedPath(f.Path)
 }
 
 // perPath are headers that describe one file, written only at its own path:
@@ -56,7 +56,7 @@ var perPath = []string{"Content-Type", "Content-Disposition", "Content-Language"
 // wildcardable reports whether a header may go in a "/*" or "/dir/*" rule.
 func wildcardable(name string) bool { return !slices.Contains(perPath, name) }
 
-// ImpliedByExtension reports whether f's captured Content-Type is the one its
+// impliedByExtension reports whether f's captured Content-Type is the one its
 // extension implies in extensionTypes — Go's builtin mime table, which is what
 // collage serves a file with where the machine adds nothing of its own,
 // "text/html; charset=utf-8" for .html — compared without regard to case or to
@@ -65,14 +65,14 @@ func wildcardable(name string) bool { return !slices.Contains(perPath, name) }
 // Content-Type needs no rule. The extension is the written file's, or, with no
 // File, its served path's, a directory standing for its index.html. A file
 // with no extension, or with no Content-Type, implies nothing.
-func ImpliedByExtension(outDir string, f collage.BuiltFile) bool {
+func impliedByExtension(outDir string, f collage.BuiltFile) bool {
 	captured := f.Headers.Values("Content-Type")
 	if len(captured) != 1 {
 		return false
 	}
 	name := f.File
 	if name == "" || outDir == "" {
-		name = ServedPath(f.Path)
+		name = servedPath(f.Path)
 		if strings.HasSuffix(name, "/") {
 			name += "index.html"
 		}
@@ -185,8 +185,8 @@ type entry struct {
 func entries(outDir string, files []collage.BuiltFile) []entry {
 	out := make([]entry, 0, len(files))
 	for _, f := range files {
-		e := entry{path: ServedAt(outDir, f), headers: http.Header{}}
-		implied := ImpliedByExtension(outDir, f)
+		e := entry{path: servedAt(outDir, f), headers: http.Header{}}
+		implied := impliedByExtension(outDir, f)
 		switch {
 		case f.Status >= 200 && f.Status <= 299 && f.Headers != nil:
 			e.captured = true
@@ -252,7 +252,7 @@ func headerKey(h http.Header) string {
 	return b.String()
 }
 
-// Compact turns the headers each file was answered with into the fewest rules
+// compact turns the headers each file was answered with into the fewest rules
 // that give every captured file exactly its own headers back: what every captured
 // file shares in "/*", what every file of a directory shares in "/dir/*", the
 // rest at the file's own path. The result does not depend on the order of files.
@@ -267,7 +267,7 @@ func headerKey(h http.Header) string {
 //   - A file asked for and answered other than 2xx (a redirect, a 404) blocks
 //     "/*" altogether: its own response does not carry what the pages do. Rules
 //     then fall back to directories and paths.
-func Compact(outDir string, files []collage.BuiltFile) []HeaderRule {
+func compact(outDir string, files []collage.BuiltFile) []headerRule {
 	all := entries(outDir, files)
 	var caps []entry
 	blocked := false
@@ -282,7 +282,7 @@ func Compact(outDir string, files []collage.BuiltFile) []HeaderRule {
 	if len(caps) == 0 {
 		return nil
 	}
-	var rules []HeaderRule
+	var rules []headerRule
 
 	// 1. What every captured file carries.
 	if !blocked {
@@ -303,7 +303,7 @@ func Compact(outDir string, files []collage.BuiltFile) []HeaderRule {
 			}
 		}
 		if len(common) > 0 {
-			rules = append(rules, HeaderRule{Path: "/*", Headers: common})
+			rules = append(rules, headerRule{Path: "/*", Headers: common})
 			for _, c := range caps {
 				for name := range common {
 					delete(c.headers, name)
@@ -333,7 +333,7 @@ func Compact(outDir string, files []collage.BuiltFile) []HeaderRule {
 		}
 		return ordered[i] < ordered[j]
 	})
-	var wildcards []HeaderRule
+	var wildcards []headerRule
 	for _, d := range ordered {
 		var under []entry
 		whole := true
@@ -365,7 +365,7 @@ func Compact(outDir string, files []collage.BuiltFile) []HeaderRule {
 		if !same {
 			continue
 		}
-		wildcards = append(wildcards, HeaderRule{Path: d + "*", Headers: shared})
+		wildcards = append(wildcards, headerRule{Path: d + "*", Headers: shared})
 		for _, c := range under {
 			for name := range shared {
 				delete(c.headers, name)
@@ -378,18 +378,18 @@ func Compact(outDir string, files []collage.BuiltFile) []HeaderRule {
 	// 3. What is left is the file's own.
 	for _, c := range caps {
 		if len(c.headers) > 0 {
-			rules = append(rules, HeaderRule{Path: c.path, Headers: c.headers})
+			rules = append(rules, headerRule{Path: c.path, Headers: c.headers})
 		}
 	}
 	return rules
 }
 
-// Expand returns the headers a host applies to path under rules: every rule that
+// expand returns the headers a host applies to path under rules: every rule that
 // matches, in order, a later rule replacing the values of a header an earlier one
-// set. path is a served path, as ServedAt spells it. A Content-Type the rules
-// leave out because the file's extension implies it (ImpliedByExtension) is the
+// set. path is a served path, as servedAt spells it. A Content-Type the rules
+// leave out because the file's extension implies it (impliedByExtension) is the
 // host's to supply, and is not in the result.
-func Expand(rules []HeaderRule, path string) http.Header {
+func expand(rules []headerRule, path string) http.Header {
 	out := http.Header{}
 	for _, r := range rules {
 		if !matches(r.Path, path) {
