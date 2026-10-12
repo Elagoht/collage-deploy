@@ -10,7 +10,7 @@ app, err := collage.New(&collage.Config{
 })
 ```
 
-Requires collage v0.61.0 or later.
+Requires collage v0.61.1 or later.
 
 ## Targets
 
@@ -84,9 +84,10 @@ Checked against each host's documentation on 2026-10-07.
   would not merge them ([forum](https://answers.netlify.com/t/behavior-for-overlapping-paths-in-custom-headers/124217)).
   Netlify CLI's local emulation (`headersForPath` in
   [src/utils/headers.ts](https://github.com/netlify/cli/blob/main/src/utils/headers.ts))
-  applies every matching rule, a later one replacing a header an earlier one set,
-  as the plugin's own model of the rules, which its tests check every export against, does. Compaction never sets one header name in two rules that
-  match one captured file, so concatenating and replacing give the same headers.
+  applies every matching rule, a later one replacing a header an earlier one set.
+  The plugin's tests check every export against that model. Compaction never
+  sets one header name in two rules that match one captured file, so
+  concatenating and replacing give the same headers.
 
 **Cloudflare Pages**
 - [Redirects](https://developers.cloudflare.com/pages/configuration/redirects/):
@@ -164,8 +165,8 @@ case or spaces around `;`. The build machine's own mime tables, which differ fro
 one system to the next, are never consulted, so the rules are the same wherever
 the site is built. A `Content-Type` that differs (`/feed.xml` answered
 `application/rss+xml`, or `application/xml`), or one on a file with no extension,
-keeps its own rule. The plugin's model of the rules reads the rules alone, so it gives such a file every
-header it was answered with but the implied `Content-Type`.
+keeps its own rule. The tests' model reads the rules alone, so it gives such a
+file every header it was answered with but the implied `Content-Type`.
 
 ## Configuration
 
@@ -188,7 +189,7 @@ build: it would split a line of the host's file and write a rule nobody declared
 
 ### v0.2.0
 
-The v1 conventions; requires collage v0.61.0. The JSON configuration is unchanged.
+The v1 conventions; requires collage v0.61.1. The JSON configuration is unchanged.
 
 | Before | Now |
 | --- | --- |

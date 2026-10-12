@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"log/slog"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -17,6 +16,7 @@ import (
 	redirects "github.com/Elagoht/collage-redirects"
 	secure "github.com/Elagoht/collage-secure"
 	"github.com/Elagoht/collage/pkg/collage"
+	"github.com/Elagoht/collage/pkg/collagetest"
 )
 
 // e2eSite builds a small site for target into its own directory: two pages, one
@@ -34,16 +34,21 @@ func e2eSite(t *testing.T, target deploy.Target) (string, *collage.BuildReport) 
 // e2eSiteIn builds e2eSite's site for target into out.
 func e2eSiteIn(t *testing.T, target deploy.Target, out string) *collage.BuildReport {
 	t.Helper()
-	templates := fstest.MapFS{
-		"t/home.html":  {Data: []byte(`<html><body><h1>Home</h1><script nonce="{{cspNonce}}">1</script></body></html>`)},
-		"t/about.html": {Data: []byte(`<html><body><h1>About</h1></body></html>`)},
+	pages := []*collage.Page{
+		collage.NewPage("home").WithContent(collage.NewFragment("home", "home.html").Build()).WithPath("en", "/").Build(),
+		collage.NewPage("about").WithContent(collage.NewFragment("about", "about.html").Build()).
+			WithPath("en", "/about").WithPermanentRedirect("/about-us", "/about").Build(),
 	}
-	app, err := collage.New(&collage.Config{
-		Server:   collage.ServerConfig{Host: "localhost", Port: 3000},
-		BaseURL:  "https://example.com",
-		Template: collage.TemplateConfig{FS: templates, Root: "t"},
-		Logger:   slog.New(slog.NewTextHandler(new(bytes.Buffer), nil)),
-		Plugins: []collage.Plugin{
+	feed := collage.NewDocument("feed", "application/rss+xml; charset=utf-8").
+		AtRoot("/feed.xml").WithBody([]byte(`<rss version="2.0"></rss>`)).Build()
+	site := collagetest.NewSite(t,
+		collagetest.WithoutHome(),
+		collagetest.WithTemplates(map[string]string{
+			"home.html":  `<html><body><h1>Home</h1><script nonce="{{cspNonce}}">1</script></body></html>`,
+			"about.html": `<html><body><h1>About</h1></body></html>`,
+		}),
+		collagetest.WithConfig(func(c *collage.Config) { c.BaseURL = "https://example.com" }),
+		collagetest.WithPlugins(
 			secure.New(secure.Options{
 				CSP:            "default-src 'self'; script-src 'self' 'nonce-{nonce}'",
 				ReferrerPolicy: "same-origin",
@@ -53,45 +58,27 @@ func e2eSiteIn(t *testing.T, target deploy.Target, out string) *collage.BuildRep
 				{From: "/blog/*", To: "/posts/:splat", Status: 301},
 			}}),
 			deploy.New(deploy.Options{Target: target}),
-		},
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	pages := []*collage.Page{
-		collage.NewPage("home").WithContent(collage.NewFragment("home", "home.html").Build()).WithPath("en", "/").Build(),
-		collage.NewPage("about").WithContent(collage.NewFragment("about", "about.html").Build()).
-			WithPath("en", "/about").WithPermanentRedirect("/about-us", "/about").Build(),
-	}
-	for _, p := range pages {
-		if err := app.RegisterPage(p); err != nil {
-			t.Fatal(err)
-		}
-	}
-	// A header of the about page's own, so it has a rule at its own path.
-	err = app.Use(func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if strings.HasPrefix(r.URL.Path, "/about") {
-				w.Header().Set("X-Robots-Tag", "noindex")
+		),
+		collagetest.WithRegister(pages[0], pages[1], feed),
+		collagetest.WithSetup(func(app *collage.App) error {
+			// A header of the about page's own, so it has a rule at its own path.
+			err := app.Use(func(next http.Handler) http.Handler {
+				return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					if strings.HasPrefix(r.URL.Path, "/about") {
+						w.Header().Set("X-Robots-Tag", "noindex")
+					}
+					next.ServeHTTP(w, r)
+				})
+			})
+			if err != nil {
+				return err
 			}
-			next.ServeHTTP(w, r)
-		})
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	feed := collage.NewDocument("feed", "application/rss+xml; charset=utf-8").
-		AtRoot("/feed.xml").WithBody([]byte(`<rss version="2.0"></rss>`)).Build()
-	if err := app.RegisterDocument(feed); err != nil {
-		t.Fatal(err)
-	}
-	err = app.Mount("/static/", fstest.MapFS{"app.3f9a1c2e.css": {Data: []byte("body{color:red}")}},
-		collage.WithCacheControl("public, max-age=31536000, immutable"))
-	if err != nil {
-		t.Fatal(err)
-	}
+			return app.Mount("/static/", fstest.MapFS{"app.3f9a1c2e.css": {Data: []byte("body{color:red}")}},
+				collage.WithCacheControl("public, max-age=31536000, immutable"))
+		}),
+	)
 
-	report, err := collage.Build(context.Background(), app, collage.BuildOptions{OutDir: out})
+	report, err := collage.Build(context.Background(), site.App, collage.BuildOptions{OutDir: out})
 	if err != nil {
 		t.Fatalf("%s: Build: %v", target, err)
 	}
