@@ -91,11 +91,7 @@ func e2eSiteIn(t *testing.T, target deploy.Target, out string) *collage.BuildRep
 		t.Fatal(err)
 	}
 
-	builder, err := collage.NewBuilder(app, collage.BuildOptions{OutDir: out})
-	if err != nil {
-		t.Fatal(err)
-	}
-	report, err := builder.Build(context.Background())
+	report, err := collage.Build(context.Background(), app, collage.BuildOptions{OutDir: out})
 	if err != nil {
 		t.Fatalf("%s: Build: %v", target, err)
 	}

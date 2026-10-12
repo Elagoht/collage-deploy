@@ -10,7 +10,7 @@ module github.com/Elagoht/collage-deploy
 go 1.26
 
 require (
-	github.com/Elagoht/collage v0.52.0
-	github.com/Elagoht/collage-redirects v0.2.0
-	github.com/Elagoht/collage-secure v0.2.3
+	github.com/Elagoht/collage v0.60.0
+	github.com/Elagoht/collage-redirects v0.2.1
+	github.com/Elagoht/collage-secure v0.2.5
 )

@@ -90,7 +90,7 @@ func TestTargetJSON(t *testing.T) {
 }
 
 func TestVersion(t *testing.T) {
-	if v := deploy.New().Version(); v != "0.1.1" {
+	if v := deploy.New().Version(); v != "0.1.2" {
 		t.Errorf("Version = %q", v)
 	}
 	if deploy.New().Name() != "elagoht/deploy" {
