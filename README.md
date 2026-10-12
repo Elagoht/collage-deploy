@@ -10,7 +10,7 @@ app, err := collage.New(&collage.Config{
 })
 ```
 
-Requires collage v0.61.1 or later.
+Requires collage v0.61.2 or later.
 
 ## Targets
 
@@ -189,7 +189,7 @@ build: it would split a line of the host's file and write a rule nobody declared
 
 ### v0.2.0
 
-The v1 conventions; requires collage v0.61.1. The JSON configuration is unchanged.
+The v1 conventions; requires collage v0.61.2. The JSON configuration is unchanged.
 
 | Before | Now |
 | --- | --- |
